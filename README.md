@@ -1,9 +1,10 @@
 # gotalk-server
 
 The backend for [Gotalk](../../README.md): a forum-first, self-hostable alternative to Discord.
-This repository currently implements **Phase 1 (Foundation)** of the
+This repository implements **Phase 1 (Foundation)** and **Phase 2 (Forum Core)** of the
 [backend plan](../../docs/backend-plan.md): accounts, places, roles and permissions, invites
-and bans, the first-run setup wizard, and the infrastructure to run it anywhere from a
+and bans, the first-run setup wizard, boards, topics and posts, full-text search,
+notifications, and moderation tools, plus the infrastructure to run it anywhere from a
 Raspberry Pi to Kubernetes.
 
 - Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis optional
@@ -110,6 +111,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `ratelimit.enabled` | `true` | Enable rate limiting |
 | `ratelimit.default` | `300-M` | Default tier, per user (or per IP when anonymous) |
 | `ratelimit.auth` | `10-M` | Login, registration, refresh, setup, and password endpoints |
+| `ratelimit.content` | `30-M` | Creating topics, replies, and reports |
 | `log.level` | `info` | `debug`, `info`, `warn`, `error` |
 | `log.format` | `json` | `json` or `text` |
 | `setup.token` | *(generated)* | Override the browser wizard's one-time token |
@@ -144,16 +146,79 @@ member's permissions are the union of their roles. Owners and `ADMINISTRATOR` ho
 everything. Members can only manage roles and members ranked below their highest role, and
 can only grant permissions they hold.
 
+**Boards.** A place's forum is a tree of boards: top-level `category` entries group
+`board`s, and boards can nest one more level. Each board can be `flat` or `threaded`, and
+can enable Q&A *solutions*. Boards may carry permission *overwrites* that allow or deny
+forum permissions (`VIEW_BOARDS`, `CREATE_TOPICS`, `REPLY_TO_TOPICS`, `ADD_REACTIONS`,
+`ATTACH_FILES`, `MANAGE_BOARDS`, `MANAGE_POSTS`) for a role. Overwrites apply from the root
+board down: at each level the `@everyone` overwrite applies first, then the member's other
+roles, so a role allow beats an `@everyone` deny. This covers staff-only boards
+(deny `VIEW_BOARDS` for `@everyone`, allow it for staff), announcement boards
+(deny `CREATE_TOPICS`), and per-board moderators (allow `MANAGE_POSTS`).
+
+**Reading without an account.** Anyone, signed in or not, can read the boards of a
+`public` place that `@everyone` can see. `invite_only` and `private` places are
+members-only. Only members can post, react, report users, or subscribe.
+
+**Topics and posts.** Content is Markdown. A topic is created together with its opening
+post (post number 1); replies get stable, increasing post numbers. Replies may set
+`parent_id`; threaded boards list posts depth-first with a `depth`. Edits keep the previous
+version (`/posts/{id}/revisions`). Deleted replies stay in the thread as tombstones with
+empty content, which only `MANAGE_POSTS` can still read. Authors can edit their posts and
+delete their replies. They can also delete their topics until someone replies. `MANAGE_POSTS`
+can do all of this to anyone's content, and can pin, lock, archive or move topics. Archived
+topics are read-only and hidden from listings unless `archived=true`. Reactions accept a
+Unicode emoji (URL-encoded in the path) or a shortcode, up to 20 distinct per post.
+`@username` mentions notify the mentioned user if they can see the board.
+
+**Read state, subscriptions, notifications.** `PUT /topics/{id}/read` records how far a user
+has read; authenticated topic listings include `last_read_post_number` and `unread_count`.
+Places, boards and topics can be set to `watching`, `normal` or `muted`. Watching a place
+or board notifies about new topics, and watching a topic notifies about every reply. Authors
+watch their own topics automatically. The most specific setting wins, so watching a topic
+inside a muted place still notifies. Notifications (`mention`, `reply`, `topic_reply`,
+`new_topic`, `reaction`, `solution`, `moderation`) carry a `data` snapshot for rendering.
+Moderation notices ignore mutes.
+
+**Search.** `GET /search` searches everything signed-out visitors can read across the
+instance; `GET /places/{place}/search` searches every board the caller can read. Queries use
+web-search syntax (`"exact phrase"`, `or`, `-exclude`). They can be filtered by `author`,
+`tag`, `board`, `solved`, `after`/`before` and `topics_only`, and sorted by `relevance`
+(text rank blended with reactions and recency), `newest` or `oldest`. Snippets wrap
+matches in Markdown `**bold**`. Indexing uses PostgreSQL full-text search (language-neutral
+`simple` configuration) and happens in the same transaction as each write, so results are
+never stale.
+
+**Moderation.** Members report posts or other members to `POST /places/{place}/reports`.
+Reports snapshot the post's content and land in a queue (`MANAGE_REPORTS`) to be resolved
+or dismissed. `MODERATE_MEMBERS` can warn members or time them out for up to 28 days. Timed-out
+members keep read access but lose posting, replying, reacting, nickname and invite rights.
+Bans may be temporary (`duration` in seconds). Every moderation and administrative action,
+including role, board and place changes, is recorded in the audit log (`VIEW_AUDIT_LOG`).
+Filter the log by action (`member.ban`, or a whole category such as `member`), actor, or
+target. Optional `?reason=` on kick/delete requests is recorded and shown to the affected
+user.
+
+**Drafts.** Clients can sync unfinished posts across devices as JSON objects under
+`/users/@me/drafts/{key}` (for example `topic:<boardID>` or `reply:<topicID>`).
+
 | Area | Endpoints |
 |---|---|
 | Instance | `GET/PATCH /instance`, `GET /permissions`, `GET /setup/status`, `POST /setup` |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` |
 | Users | `GET/PATCH/DELETE /users/@me`, `POST /users/@me/password`, `GET /users/@me/sessions`, `DELETE /users/@me/sessions/{id}`, `GET /users/@me/places`, `GET /users/{username}` |
 | Places | `GET/POST /places`, `GET/PATCH/DELETE /places/{place}`, `POST /places/{place}/join`, `/leave`, `/transfer`, `GET /places/{place}/permissions/@me` |
-| Members | `GET /places/{place}/members`, `GET/PATCH/DELETE /places/{place}/members/{userID}`, `PUT/DELETE …/members/{userID}/roles/{roleID}` |
+| Members | `GET /places/{place}/members?q=`, `GET/PATCH/DELETE /places/{place}/members/{userID}`, `PUT/DELETE …/members/{userID}/roles/{roleID}` |
 | Bans | `GET /places/{place}/bans`, `PUT/DELETE /places/{place}/bans/{userID}` |
 | Roles | `GET/POST /places/{place}/roles`, `PATCH/DELETE /places/{place}/roles/{roleID}` |
 | Invites | `GET/POST /places/{place}/invites`, `DELETE /places/{place}/invites/{code}`, `GET/POST /invites/{code}` |
+| Boards | `GET/POST /places/{place}/boards`, `GET/PATCH/DELETE /boards/{boardID}`, `GET /boards/{boardID}/overwrites`, `PUT/DELETE /boards/{boardID}/overwrites/{roleID}`, `PUT /boards/{boardID}/subscription` |
+| Topics | `GET/POST /boards/{boardID}/topics`, `GET /places/{place}/topics`, `GET /places/{place}/tags`, `GET/PATCH/DELETE /topics/{topicID}`, `PUT/DELETE /topics/{topicID}/solution`, `PUT /topics/{topicID}/read`, `PUT /topics/{topicID}/subscription` |
+| Posts | `GET/POST /topics/{topicID}/posts`, `GET/PATCH/DELETE /posts/{postID}`, `GET /posts/{postID}/revisions`, `GET/PUT/DELETE /posts/{postID}/reactions/{emoji}` |
+| Search | `GET /search`, `GET /places/{place}/search` |
+| Notifications | `GET /users/@me/notifications`, `GET …/notifications/unread-count`, `POST …/notifications/read-all`, `POST …/notifications/{id}/read`, `DELETE …/notifications/{id}`, `PUT /places/{place}/subscription` |
+| Drafts | `GET /users/@me/drafts`, `GET/PUT/DELETE /users/@me/drafts/{key}` |
+| Moderation | `GET/POST /places/{place}/reports`, `PATCH /places/{place}/reports/{reportID}`, `GET /places/{place}/audit-log`, `PUT/DELETE /places/{place}/members/{userID}/timeout`, `POST /places/{place}/members/{userID}/warnings` |
 
 **Errors** are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
 documents. **Rate limits** are reported on every response via `X-RateLimit-Limit`,
@@ -185,10 +250,10 @@ generated code is out of date.
 |---|---|
 | `cmd/gotalk` | CLI entry point: serve, migrate, setup, healthcheck |
 | `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs |
-| `internal/service` | Business logic shared by the API and CLI |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`) |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |
-| `internal/permissions` | Permission bits and role hierarchy rules |
+| `internal/permissions` | Permission bits, role hierarchy, and board overwrite rules |
 | `internal/auth` | Argon2id passwords, JWT access tokens, refresh tokens |
 | `internal/config` | Layered configuration and validation |
 | `internal/ratelimit` | Rate limit tiers backed by Redis or memory |

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
 	"github.com/parkerbrown98/gotalk-server/internal/database"
@@ -54,13 +56,24 @@ func (s *Service) memberStanding(ctx context.Context, q *store.Queries, place st
 	if err != nil {
 		return permissions.Member{}, err
 	}
-	m := permissions.Member{IsOwner: place.OwnerID == userID}
+	m := permissions.Member{IsOwner: place.OwnerID == userID, RoleIDs: make([]uuid.UUID, 0, len(rows))}
 	for _, r := range rows {
 		m.Raw |= permissions.Permission(r.Permissions)
 		m.TopPosition = max(m.TopPosition, r.Position)
+		m.RoleIDs = append(m.RoleIDs, r.ID)
+		if r.IsDefault {
+			m.DefaultRoleID = r.ID
+		}
 	}
+	until, err := q.GetMemberTimeout(ctx, store.GetMemberTimeoutParams{PlaceID: place.ID, UserID: userID})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return permissions.Member{}, err
+	}
+	m.TimedOut = timedOut(until)
 	return m, nil
 }
+
+func timedOut(until *time.Time) bool { return until != nil && until.After(time.Now()) }
 
 // placeFor resolves a place the caller can see. Private places are hidden (404) from
 // non-members, except instance administrators.
@@ -204,12 +217,14 @@ func (s *Service) DiscoverPlaces(ctx context.Context, query string, page Paginat
 	page = page.normalized()
 	var qp *string
 	if query = strings.TrimSpace(query); query != "" {
-		// Escape LIKE wildcards so user input is matched literally.
-		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+		escaped := likeEscaper.Replace(query)
 		qp = &escaped
 	}
 	return s.q.ListDiscoverablePlaces(ctx, store.ListDiscoverablePlacesParams{Query: qp, Lim: page.Limit, Off: page.Offset})
 }
+
+// likeEscaper escapes LIKE wildcards so user input is matched literally.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (s *Service) ListMyPlaces(ctx context.Context, p *Principal) ([]store.Place, error) {
 	return s.q.ListUserPlaces(ctx, p.User.ID)
@@ -253,24 +268,50 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 	if err := errors.Join(validateOptionalURL("icon_url", in.IconURL), validateOptionalURL("banner_url", in.BannerURL)); err != nil {
 		return PlaceView{}, firstAppErr(err)
 	}
-	updated, err := s.q.UpdatePlace(ctx, store.UpdatePlaceParams{
-		ID:          place.ID,
-		Name:        in.Name,
-		Description: in.Description,
-		Slug:        in.Slug,
-		Visibility:  in.Visibility,
-		IsNsfw:      in.IsNSFW,
-		Locale:      in.Locale,
-		IconUrl:     in.IconURL,
-		BannerUrl:   in.BannerURL,
+	var updated store.Place
+	err = s.tx(ctx, func(q *store.Queries) error {
+		var err error
+		updated, err = q.UpdatePlace(ctx, store.UpdatePlaceParams{
+			ID:          place.ID,
+			Name:        in.Name,
+			Description: in.Description,
+			Slug:        in.Slug,
+			Visibility:  in.Visibility,
+			IsNsfw:      in.IsNSFW,
+			Locale:      in.Locale,
+			IconUrl:     in.IconURL,
+			BannerUrl:   in.BannerURL,
+		})
+		if database.IsUniqueViolation(err, "places_slug_key") {
+			return apperr.Conflict("slug is already in use")
+		}
+		if err != nil {
+			return notFound(err, "place not found")
+		}
+		if updated.Visibility != place.Visibility {
+			if err := s.refreshPublicBoards(ctx, q, place.ID); err != nil {
+				return err
+			}
+		}
+		return s.audit(ctx, q, place.ID, p, "place.update", "place", &place.ID, "", placeChanges(in))
 	})
-	if database.IsUniqueViolation(err, "places_slug_key") {
-		return PlaceView{}, apperr.Conflict("slug is already in use")
-	}
 	if err != nil {
-		return PlaceView{}, notFound(err, "place not found")
+		return PlaceView{}, err
 	}
 	return viewOf(updated, acc), nil
+}
+
+func placeChanges(in PlaceUpdate) map[string]any {
+	m := map[string]any{}
+	setIf(m, "name", in.Name)
+	setIf(m, "description", in.Description)
+	setIf(m, "slug", in.Slug)
+	setIf(m, "visibility", in.Visibility)
+	setIf(m, "is_nsfw", in.IsNSFW)
+	setIf(m, "locale", in.Locale)
+	setIf(m, "icon_url", in.IconURL)
+	setIf(m, "banner_url", in.BannerURL)
+	return m
 }
 
 func (s *Service) DeletePlace(ctx context.Context, p *Principal, ref string) error {
@@ -308,6 +349,9 @@ func (s *Service) TransferOwnership(ctx context.Context, p *Principal, ref strin
 			return apperr.Invalid("the new owner must be a member of the place")
 		}
 		if err := q.TransferPlaceOwnership(ctx, store.TransferPlaceOwnershipParams{ID: place.ID, OwnerID: newOwner}); err != nil {
+			return err
+		}
+		if err := s.audit(ctx, q, place.ID, p, "place.transfer", "user", &newOwner, "", nil); err != nil {
 			return err
 		}
 		place.OwnerID = newOwner

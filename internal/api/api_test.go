@@ -137,6 +137,7 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 	cfg.Setup = config.Setup{InstanceName: "Gotalk", RegistrationMode: "open"}
 	// Tests make many auth calls from one IP; TestAuthRateLimit lowers this explicitly.
 	cfg.RateLimit.Auth = "1000-M"
+	cfg.RateLimit.Content = "1000-M"
 	if o.mutate != nil {
 		o.mutate(cfg)
 	}
@@ -155,10 +156,7 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 		rdb = redis.NewClient(ropts)
 		t.Cleanup(func() { _ = rdb.Close() })
 	}
-	limiter, err := ratelimit.New(rdb, map[string]string{
-		ratelimit.TierDefault: cfg.RateLimit.Default,
-		ratelimit.TierAuth:    cfg.RateLimit.Auth,
-	})
+	limiter, err := ratelimit.New(rdb, cfg.RateLimit.Tiers())
 	require.NoError(t, err)
 
 	svc, err := service.New(ctx, pool, cfg, log)
@@ -657,12 +655,19 @@ func TestOpenAPIAndDocs(t *testing.T) {
 	e := newEnv(t)
 	spec := e.expect(200, e.do("GET", "/api/v1/openapi.json", "", nil)).obj(t)
 	paths := spec["paths"].(map[string]any)
-	for _, p := range []string{"/auth/login", "/places/{place}", "/places/{place}/members/{userID}/roles/{roleID}", "/setup"} {
+	for _, p := range []string{"/auth/login", "/places/{place}", "/places/{place}/members/{userID}/roles/{roleID}", "/setup",
+		"/places/{place}/boards", "/boards/{boardID}/topics", "/topics/{topicID}/posts", "/posts/{postID}/reactions/{emoji}",
+		"/search", "/users/@me/notifications", "/places/{place}/reports", "/places/{place}/audit-log"} {
 		require.Contains(t, paths, p)
 	}
 	servers := spec["servers"].([]any)
 	require.Equal(t, "/api/v1", servers[0].(map[string]any)["url"])
 	docs := e.expect(200, e.do("GET", "/api/v1/docs", "", nil))
 	require.True(t, strings.Contains(string(docs.Raw), "openapi"), "docs page references the spec")
-	require.Len(t, e.expect(200, e.do("GET", "/api/v1/permissions", "", nil)).list(t), 25)
+	require.Len(t, e.expect(200, e.do("GET", "/api/v1/permissions", "", nil)).list(t), 28)
+
+	e.setup()
+	features := e.expect(200, e.do("GET", "/api/v1/instance", "", nil)).obj(t)["features"].(map[string]any)
+	require.Equal(t, true, features["forums"])
+	require.Equal(t, "postgres", features["search"])
 }

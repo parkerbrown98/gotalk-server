@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -48,7 +49,7 @@ func (q *Queries) AddMemberRole(ctx context.Context, arg AddMemberRoleParams) er
 }
 
 const getMember = `-- name: GetMember :one
-SELECT m.place_id, m.user_id, m.nickname, m.joined_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
 FROM place_members m
 JOIN users u ON u.id = m.user_id
 WHERE m.place_id = $1 AND m.user_id = $2
@@ -72,6 +73,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 		&i.PlaceMember.UserID,
 		&i.PlaceMember.Nickname,
 		&i.PlaceMember.JoinedAt,
+		&i.PlaceMember.TimeoutUntil,
 		&i.User.ID,
 		&i.User.Username,
 		&i.User.Email,
@@ -90,7 +92,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 }
 
 const getMemberRolesForPermissions = `-- name: GetMemberRolesForPermissions :many
-SELECT r.permissions, r.position
+SELECT r.id, r.permissions, r.position, r.is_default
 FROM roles r
 WHERE r.place_id = $1
   AND (r.is_default
@@ -104,8 +106,10 @@ type GetMemberRolesForPermissionsParams struct {
 }
 
 type GetMemberRolesForPermissionsRow struct {
+	ID          uuid.UUID
 	Permissions int64
 	Position    int32
+	IsDefault   bool
 }
 
 // Returns the default role plus every role assigned to the member.
@@ -118,7 +122,12 @@ func (q *Queries) GetMemberRolesForPermissions(ctx context.Context, arg GetMembe
 	items := []GetMemberRolesForPermissionsRow{}
 	for rows.Next() {
 		var i GetMemberRolesForPermissionsRow
-		if err := rows.Scan(&i.Permissions, &i.Position); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Permissions,
+			&i.Position,
+			&i.IsDefault,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -127,6 +136,22 @@ func (q *Queries) GetMemberRolesForPermissions(ctx context.Context, arg GetMembe
 		return nil, err
 	}
 	return items, nil
+}
+
+const getMemberTimeout = `-- name: GetMemberTimeout :one
+SELECT timeout_until FROM place_members WHERE place_id = $1 AND user_id = $2
+`
+
+type GetMemberTimeoutParams struct {
+	PlaceID uuid.UUID
+	UserID  uuid.UUID
+}
+
+func (q *Queries) GetMemberTimeout(ctx context.Context, arg GetMemberTimeoutParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, getMemberTimeout, arg.PlaceID, arg.UserID)
+	var timeout_until *time.Time
+	err := row.Scan(&timeout_until)
+	return timeout_until, err
 }
 
 const isMember = `-- name: IsMember :one
@@ -181,16 +206,21 @@ func (q *Queries) ListMemberRoleIDs(ctx context.Context, arg ListMemberRoleIDsPa
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT m.place_id, m.user_id, m.nickname, m.joined_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
 FROM place_members m
 JOIN users u ON u.id = m.user_id
 WHERE m.place_id = $1
+  AND ($2::text IS NULL
+       OR u.username ILIKE $2::text || '%'
+       OR u.display_name ILIKE $2::text || '%'
+       OR m.nickname ILIKE $2::text || '%')
 ORDER BY m.joined_at, m.user_id
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListMembersParams struct {
 	PlaceID uuid.UUID
+	Query   *string
 	Off     int32
 	Lim     int32
 }
@@ -200,8 +230,15 @@ type ListMembersRow struct {
 	User        User
 }
 
+// The optional query is a case-insensitive prefix of the username, display name or nickname
+// (LIKE wildcards must already be escaped).
 func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]ListMembersRow, error) {
-	rows, err := q.db.Query(ctx, listMembers, arg.PlaceID, arg.Off, arg.Lim)
+	rows, err := q.db.Query(ctx, listMembers,
+		arg.PlaceID,
+		arg.Query,
+		arg.Off,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -214,6 +251,7 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 			&i.PlaceMember.UserID,
 			&i.PlaceMember.Nickname,
 			&i.PlaceMember.JoinedAt,
+			&i.PlaceMember.TimeoutUntil,
 			&i.User.ID,
 			&i.User.Username,
 			&i.User.Email,
@@ -228,6 +266,41 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 			&i.User.UpdatedAt,
 			&i.User.DeletedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMembersAmong = `-- name: ListMembersAmong :many
+SELECT user_id, timeout_until FROM place_members
+WHERE place_id = $1 AND user_id = ANY($2::uuid[])
+`
+
+type ListMembersAmongParams struct {
+	PlaceID uuid.UUID
+	UserIds []uuid.UUID
+}
+
+type ListMembersAmongRow struct {
+	UserID       uuid.UUID
+	TimeoutUntil *time.Time
+}
+
+func (q *Queries) ListMembersAmong(ctx context.Context, arg ListMembersAmongParams) ([]ListMembersAmongRow, error) {
+	rows, err := q.db.Query(ctx, listMembersAmong, arg.PlaceID, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMembersAmongRow{}
+	for rows.Next() {
+		var i ListMembersAmongRow
+		if err := rows.Scan(&i.UserID, &i.TimeoutUntil); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -280,6 +353,22 @@ func (q *Queries) RemoveMemberRole(ctx context.Context, arg RemoveMemberRolePara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setMemberTimeout = `-- name: SetMemberTimeout :exec
+UPDATE place_members SET timeout_until = $1::timestamptz
+WHERE place_id = $2 AND user_id = $3
+`
+
+type SetMemberTimeoutParams struct {
+	TimeoutUntil *time.Time
+	PlaceID      uuid.UUID
+	UserID       uuid.UUID
+}
+
+func (q *Queries) SetMemberTimeout(ctx context.Context, arg SetMemberTimeoutParams) error {
+	_, err := q.db.Exec(ctx, setMemberTimeout, arg.TimeoutUntil, arg.PlaceID, arg.UserID)
+	return err
 }
 
 const updateMemberNickname = `-- name: UpdateMemberNickname :exec

@@ -7,12 +7,14 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 const deleteBan = `-- name: DeleteBan :execrows
-DELETE FROM place_bans WHERE place_id = $1 AND user_id = $2
+DELETE FROM place_bans
+WHERE place_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > now())
 `
 
 type DeleteBanParams struct {
@@ -20,6 +22,7 @@ type DeleteBanParams struct {
 	UserID  uuid.UUID
 }
 
+// Expired bans count as already lifted.
 func (q *Queries) DeleteBan(ctx context.Context, arg DeleteBanParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteBan, arg.PlaceID, arg.UserID)
 	if err != nil {
@@ -29,7 +32,10 @@ func (q *Queries) DeleteBan(ctx context.Context, arg DeleteBanParams) (int64, er
 }
 
 const isBanned = `-- name: IsBanned :one
-SELECT EXISTS (SELECT 1 FROM place_bans WHERE place_id = $1 AND user_id = $2)
+SELECT EXISTS (
+    SELECT 1 FROM place_bans
+    WHERE place_id = $1 AND user_id = $2 AND (expires_at IS NULL OR expires_at > now())
+)
 `
 
 type IsBannedParams struct {
@@ -37,6 +43,7 @@ type IsBannedParams struct {
 	UserID  uuid.UUID
 }
 
+// Temporary bans stop applying once they expire.
 func (q *Queries) IsBanned(ctx context.Context, arg IsBannedParams) (bool, error) {
 	row := q.db.QueryRow(ctx, isBanned, arg.PlaceID, arg.UserID)
 	var exists bool
@@ -45,10 +52,10 @@ func (q *Queries) IsBanned(ctx context.Context, arg IsBannedParams) (bool, error
 }
 
 const listBans = `-- name: ListBans :many
-SELECT b.place_id, b.user_id, b.reason, b.banned_by, b.created_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT b.place_id, b.user_id, b.reason, b.banned_by, b.created_at, b.expires_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
 FROM place_bans b
 JOIN users u ON u.id = b.user_id
-WHERE b.place_id = $1
+WHERE b.place_id = $1 AND (b.expires_at IS NULL OR b.expires_at > now())
 ORDER BY b.created_at DESC
 LIMIT $3 OFFSET $2
 `
@@ -79,6 +86,7 @@ func (q *Queries) ListBans(ctx context.Context, arg ListBansParams) ([]ListBansR
 			&i.PlaceBan.Reason,
 			&i.PlaceBan.BannedBy,
 			&i.PlaceBan.CreatedAt,
+			&i.PlaceBan.ExpiresAt,
 			&i.User.ID,
 			&i.User.Username,
 			&i.User.Email,
@@ -104,17 +112,18 @@ func (q *Queries) ListBans(ctx context.Context, arg ListBansParams) ([]ListBansR
 }
 
 const upsertBan = `-- name: UpsertBan :exec
-INSERT INTO place_bans (place_id, user_id, reason, banned_by)
-VALUES ($1, $2, $3, $4)
+INSERT INTO place_bans (place_id, user_id, reason, banned_by, expires_at)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (place_id, user_id) DO UPDATE
-SET reason = EXCLUDED.reason, banned_by = EXCLUDED.banned_by, created_at = now()
+SET reason = EXCLUDED.reason, banned_by = EXCLUDED.banned_by, expires_at = EXCLUDED.expires_at, created_at = now()
 `
 
 type UpsertBanParams struct {
-	PlaceID  uuid.UUID
-	UserID   uuid.UUID
-	Reason   string
-	BannedBy *uuid.UUID
+	PlaceID   uuid.UUID
+	UserID    uuid.UUID
+	Reason    string
+	BannedBy  *uuid.UUID
+	ExpiresAt *time.Time
 }
 
 func (q *Queries) UpsertBan(ctx context.Context, arg UpsertBanParams) error {
@@ -123,6 +132,7 @@ func (q *Queries) UpsertBan(ctx context.Context, arg UpsertBanParams) error {
 		arg.UserID,
 		arg.Reason,
 		arg.BannedBy,
+		arg.ExpiresAt,
 	)
 	return err
 }

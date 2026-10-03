@@ -95,7 +95,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		},
 		RegistrationMode: settings.RegistrationMode,
 		SetupRequired:    settings.SetupCompletedAt == nil,
-		Features:         Features{Search: "none"},
+		Features:         Features{Forums: true, Search: "postgres"},
 		RateLimits:       limits,
 		Stats:            Stats{Users: stats.Users, Places: stats.Places},
 	}, nil

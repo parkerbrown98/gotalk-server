@@ -76,6 +76,42 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteUserDrafts = `-- name: DeleteUserDrafts :exec
+DELETE FROM drafts WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserDrafts(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserDrafts, userID)
+	return err
+}
+
+const deleteUserNotifications = `-- name: DeleteUserNotifications :exec
+DELETE FROM notifications WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserNotifications(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserNotifications, userID)
+	return err
+}
+
+const deleteUserSubscriptions = `-- name: DeleteUserSubscriptions :exec
+DELETE FROM subscriptions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserSubscriptions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserSubscriptions, userID)
+	return err
+}
+
+const deleteUserTopicReads = `-- name: DeleteUserTopicReads :exec
+DELETE FROM topic_reads WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserTopicReads(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserTopicReads, userID)
+	return err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL
 `
@@ -152,6 +188,96 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const listUsersByIDs = `-- name: ListUsersByIDs :many
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+`
+
+func (q *Queries) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsersByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.PasswordHash,
+			&i.DisplayName,
+			&i.Bio,
+			&i.Pronouns,
+			&i.AvatarUrl,
+			&i.IsInstanceAdmin,
+			&i.EmailVerifiedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersByUsernames = `-- name: ListUsersByUsernames :many
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE lower(username) = ANY($1::text[]) AND deleted_at IS NULL
+`
+
+func (q *Queries) ListUsersByUsernames(ctx context.Context, usernames []string) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsersByUsernames, usernames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.PasswordHash,
+			&i.DisplayName,
+			&i.Bio,
+			&i.Pronouns,
+			&i.AvatarUrl,
+			&i.IsInstanceAdmin,
+			&i.EmailVerifiedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const removeUserReactions = `-- name: RemoveUserReactions :exec
+WITH removed AS (
+    DELETE FROM post_reactions WHERE user_id = $1 RETURNING post_id
+)
+UPDATE posts SET reaction_count = posts.reaction_count - r.n
+FROM (SELECT post_id, count(*)::integer AS n FROM removed GROUP BY post_id) r
+WHERE posts.id = r.post_id
+`
+
+func (q *Queries) RemoveUserReactions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, removeUserReactions, userID)
+	return err
 }
 
 const softDeleteUser = `-- name: SoftDeleteUser :exec

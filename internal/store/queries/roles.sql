@@ -6,6 +6,9 @@ RETURNING *;
 -- name: GetRole :one
 SELECT * FROM roles WHERE id = @id AND place_id = @place_id;
 
+-- name: GetDefaultRole :one
+SELECT * FROM roles WHERE place_id = @place_id AND is_default;
+
 -- name: ListRoles :many
 SELECT * FROM roles WHERE place_id = @place_id ORDER BY position DESC, created_at;
 

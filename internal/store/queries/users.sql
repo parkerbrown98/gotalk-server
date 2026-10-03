@@ -47,3 +47,29 @@ SELECT count(*) FROM places WHERE owner_id = @owner_id AND deleted_at IS NULL;
 
 -- name: CountInstanceAdmins :one
 SELECT count(*) FROM users WHERE is_instance_admin AND deleted_at IS NULL;
+
+-- name: ListUsersByIDs :many
+SELECT * FROM users WHERE id = ANY(@ids::uuid[]) AND deleted_at IS NULL;
+
+-- name: ListUsersByUsernames :many
+SELECT * FROM users WHERE lower(username) = ANY(@usernames::text[]) AND deleted_at IS NULL;
+
+-- name: DeleteUserNotifications :exec
+DELETE FROM notifications WHERE user_id = @user_id;
+
+-- name: DeleteUserSubscriptions :exec
+DELETE FROM subscriptions WHERE user_id = @user_id;
+
+-- name: DeleteUserDrafts :exec
+DELETE FROM drafts WHERE user_id = @user_id;
+
+-- name: DeleteUserTopicReads :exec
+DELETE FROM topic_reads WHERE user_id = @user_id;
+
+-- name: RemoveUserReactions :exec
+WITH removed AS (
+    DELETE FROM post_reactions WHERE user_id = @user_id RETURNING post_id
+)
+UPDATE posts SET reaction_count = posts.reaction_count - r.n
+FROM (SELECT post_id, count(*)::integer AS n FROM removed GROUP BY post_id) r
+WHERE posts.id = r.post_id;

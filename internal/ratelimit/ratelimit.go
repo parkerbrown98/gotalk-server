@@ -15,6 +15,8 @@ import (
 const (
 	TierDefault = "default"
 	TierAuth    = "auth"
+	// TierContent applies to creating topics, posts and reports instead of the default tier.
+	TierContent = "content"
 )
 
 type Result struct {
@@ -56,7 +58,7 @@ func New(rdb *redis.Client, rates map[string]string) (*Limiter, error) {
 	}
 
 	l := &Limiter{tiers: map[string]*limiter.Limiter{}, backend: backend}
-	for _, name := range []string{TierDefault, TierAuth} {
+	for _, name := range []string{TierDefault, TierAuth, TierContent} {
 		formatted, ok := rates[name]
 		if !ok {
 			continue

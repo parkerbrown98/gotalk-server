@@ -31,6 +31,7 @@ ratelimit:
   enabled: true
   default: 300-M               # <limit>-<S|M|H|D>
   auth: 10-M                   # login, register, refresh, setup, password changes
+  content: 30-M                # creating topics, replies and reports
 
 log:
   level: info                  # debug, info, warn, error

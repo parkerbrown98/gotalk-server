@@ -90,7 +90,11 @@ func (s *Service) CreateRole(ctx context.Context, p *Principal, ref string, in R
 			params.Permissions = *in.Permissions
 		}
 		role, err = q.CreateRole(ctx, params)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.audit(ctx, q, place.ID, p, "role.create", "role", &role.ID, "",
+			map[string]any{"name": role.Name, "permissions": role.Permissions})
 	})
 	return role, err
 }
@@ -152,7 +156,21 @@ func (s *Service) UpdateRole(ctx context.Context, p *Principal, ref string, role
 			Permissions: in.Permissions,
 			Position:    in.Position,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		// @everyone permissions decide what signed-out visitors can read.
+		if role.IsDefault && role.Permissions != current.Permissions {
+			if err := s.refreshPublicBoards(ctx, q, place.ID); err != nil {
+				return err
+			}
+		}
+		meta := map[string]any{}
+		setIf(meta, "name", in.Name)
+		setIf(meta, "color", in.Color)
+		setIf(meta, "permissions", in.Permissions)
+		setIf(meta, "position", in.Position)
+		return s.audit(ctx, q, place.ID, p, "role.update", "role", &role.ID, "", meta)
 	})
 	return role, err
 }
@@ -177,6 +195,9 @@ func (s *Service) DeleteRole(ctx context.Context, p *Principal, ref string, role
 			return apperr.Forbidden("you can only delete roles ranked below your highest role")
 		}
 		if err := q.DeleteRole(ctx, store.DeleteRoleParams{ID: role.ID, PlaceID: place.ID}); err != nil {
+			return err
+		}
+		if err := s.audit(ctx, q, place.ID, p, "role.delete", "role", &role.ID, "", map[string]any{"name": role.Name}); err != nil {
 			return err
 		}
 		return q.ShiftRolePositions(ctx, store.ShiftRolePositionsParams{

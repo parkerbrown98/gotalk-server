@@ -178,10 +178,7 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		defer func() { _ = rdb.Close() }()
 	}
 
-	limiter, err := ratelimit.New(rdb, map[string]string{
-		ratelimit.TierDefault: cfg.RateLimit.Default,
-		ratelimit.TierAuth:    cfg.RateLimit.Auth,
-	})
+	limiter, err := ratelimit.New(rdb, cfg.RateLimit.Tiers())
 	if err != nil {
 		return err
 	}

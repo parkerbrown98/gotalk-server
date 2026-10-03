@@ -66,6 +66,27 @@ func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) error {
 	return err
 }
 
+const getDefaultRole = `-- name: GetDefaultRole :one
+SELECT id, place_id, name, color, position, permissions, is_default, created_at, updated_at FROM roles WHERE place_id = $1 AND is_default
+`
+
+func (q *Queries) GetDefaultRole(ctx context.Context, placeID uuid.UUID) (Role, error) {
+	row := q.db.QueryRow(ctx, getDefaultRole, placeID)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.PlaceID,
+		&i.Name,
+		&i.Color,
+		&i.Position,
+		&i.Permissions,
+		&i.IsDefault,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getRole = `-- name: GetRole :one
 SELECT id, place_id, name, color, position, permissions, is_default, created_at, updated_at FROM roles WHERE id = $1 AND place_id = $2
 `

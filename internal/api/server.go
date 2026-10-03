@@ -87,6 +87,13 @@ func New(d Deps) http.Handler {
 		s.registerMembers()
 		s.registerRoles()
 		s.registerInvites()
+		s.registerBoards()
+		s.registerTopics()
+		s.registerPosts()
+		s.registerSearch()
+		s.registerNotifications()
+		s.registerDrafts()
+		s.registerModeration()
 	})
 
 	return r

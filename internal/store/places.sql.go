@@ -187,6 +187,45 @@ func (q *Queries) ListDiscoverablePlaces(ctx context.Context, arg ListDiscoverab
 	return items, nil
 }
 
+const listPlacesByIDs = `-- name: ListPlacesByIDs :many
+SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at FROM places WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+`
+
+func (q *Queries) ListPlacesByIDs(ctx context.Context, ids []uuid.UUID) ([]Place, error) {
+	rows, err := q.db.Query(ctx, listPlacesByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Place{}
+	for rows.Next() {
+		var i Place
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.IconUrl,
+			&i.BannerUrl,
+			&i.Visibility,
+			&i.IsNsfw,
+			&i.Locale,
+			&i.OwnerID,
+			&i.MemberCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserPlaces = `-- name: ListUserPlaces :many
 SELECT p.id, p.slug, p.name, p.description, p.icon_url, p.banner_url, p.visibility, p.is_nsfw, p.locale, p.owner_id, p.member_count, p.created_at, p.updated_at, p.deleted_at FROM places p
 JOIN place_members m ON m.place_id = p.id

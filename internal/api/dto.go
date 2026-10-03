@@ -139,10 +139,11 @@ func toPlaceView(v service.PlaceView) Place {
 }
 
 type Member struct {
-	User     User      `json:"user"`
-	Nickname *string   `json:"nickname"`
-	RoleIDs  []string  `json:"role_ids" doc:"Explicitly assigned roles; the @everyone role is implicit"`
-	JoinedAt time.Time `json:"joined_at"`
+	User         User       `json:"user"`
+	Nickname     *string    `json:"nickname"`
+	RoleIDs      []string   `json:"role_ids" doc:"Explicitly assigned roles; the @everyone role is implicit"`
+	JoinedAt     time.Time  `json:"joined_at"`
+	TimeoutUntil *time.Time `json:"timeout_until" doc:"While in the future, the member cannot post, reply or react"`
 }
 
 func toMember(m service.MemberView) Member {
@@ -150,7 +151,11 @@ func toMember(m service.MemberView) Member {
 	for i, id := range m.RoleIDs {
 		ids[i] = id.String()
 	}
-	return Member{User: toUser(m.User), Nickname: m.Member.Nickname, RoleIDs: ids, JoinedAt: m.Member.JoinedAt}
+	out := Member{User: toUser(m.User), Nickname: m.Member.Nickname, RoleIDs: ids, JoinedAt: m.Member.JoinedAt}
+	if t := m.Member.TimeoutUntil; t != nil && t.After(time.Now()) {
+		out.TimeoutUntil = t
+	}
+	return out
 }
 
 type Role struct {
@@ -205,19 +210,18 @@ func toInvite(i store.Invite) Invite {
 }
 
 type Ban struct {
-	User      User      `json:"user"`
-	Reason    string    `json:"reason"`
-	BannedBy  *string   `json:"banned_by" format:"uuid"`
-	CreatedAt time.Time `json:"created_at"`
+	User      User       `json:"user"`
+	Reason    string     `json:"reason"`
+	BannedBy  *string    `json:"banned_by" format:"uuid"`
+	ExpiresAt *time.Time `json:"expires_at" doc:"null for permanent bans"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 func toBan(b store.ListBansRow) Ban {
-	var by *string
-	if b.PlaceBan.BannedBy != nil {
-		s := b.PlaceBan.BannedBy.String()
-		by = &s
+	return Ban{
+		User: toUser(b.User), Reason: b.PlaceBan.Reason, BannedBy: idString(b.PlaceBan.BannedBy),
+		ExpiresAt: b.PlaceBan.ExpiresAt, CreatedAt: b.PlaceBan.CreatedAt,
 	}
-	return Ban{User: toUser(b.User), Reason: b.PlaceBan.Reason, BannedBy: by, CreatedAt: b.PlaceBan.CreatedAt}
 }
 
 // Page is a paginated list. NextOffset is present when more results may exist.

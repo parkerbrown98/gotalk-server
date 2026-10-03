@@ -80,6 +80,17 @@ type PlacePageInput struct {
 	PageQuery
 }
 
+type ListMembersInput struct {
+	PlacePath
+	PageQuery
+	Query string `query:"q" maxLength:"32" doc:"Prefix of a username, display name or nickname (autocomplete)"`
+}
+
+// ReasonQuery carries an optional audit-log reason on DELETE requests.
+type ReasonQuery struct {
+	Reason string `query:"reason" maxLength:"512" doc:"Recorded in the audit log and shown to the affected user"`
+}
+
 type UpdateMemberRequest struct {
 	Nickname string `json:"nickname" maxLength:"32" doc:"Empty string clears the nickname"`
 }
@@ -97,7 +108,8 @@ type CreateInviteRequest struct {
 }
 
 type BanRequest struct {
-	Reason string `json:"reason,omitempty" maxLength:"512"`
+	Reason   string `json:"reason,omitempty" maxLength:"512"`
+	Duration int64  `json:"duration,omitempty" minimum:"0" maximum:"31536000" doc:"Seconds until the ban lifts; 0 or omitted bans permanently"`
 }
 
 type MyPermissions struct {
@@ -225,9 +237,9 @@ func (s *Server) registerPlaces() {
 func (s *Server) registerMembers() {
 	huma.Register(s.api, withAuth(operation("list-members", http.MethodGet, "/places/{place}/members",
 		"List members", tagMembers)),
-		handle(s, func(ctx context.Context, in *PlacePageInput) (*Body[Page[Member]], error) {
+		handle(s, func(ctx context.Context, in *ListMembersInput) (*Body[Page[Member]], error) {
 			page := in.pagination()
-			members, err := s.Service.ListMembers(ctx, mustPrincipal(ctx), in.Place, page)
+			members, err := s.Service.ListMembers(ctx, mustPrincipal(ctx), in.Place, in.Query, page)
 			if err != nil {
 				return nil, err
 			}
@@ -267,12 +279,15 @@ func (s *Server) registerMembers() {
 
 	huma.Register(s.api, withAuth(operation("kick-member", http.MethodDelete, "/places/{place}/members/{userID}",
 		"Kick a member (KICK_MEMBERS)", tagMembers)),
-		handle(s, func(ctx context.Context, in *MemberPath) (*struct{}, error) {
+		handle(s, func(ctx context.Context, in *struct {
+			MemberPath
+			ReasonQuery
+		}) (*struct{}, error) {
 			id, err := parseID("userID", in.UserID)
 			if err != nil {
 				return nil, err
 			}
-			return nil, s.Service.KickMember(ctx, mustPrincipal(ctx), in.Place, id)
+			return nil, s.Service.KickMember(ctx, mustPrincipal(ctx), in.Place, id, in.Reason)
 		}))
 
 	huma.Register(s.api, withAuth(operation("assign-role", http.MethodPut, "/places/{place}/members/{userID}/roles/{roleID}",
@@ -332,11 +347,15 @@ func (s *Server) registerMembers() {
 			if err != nil {
 				return nil, err
 			}
-			var reason string
+			var (
+				reason   string
+				duration time.Duration
+			)
 			if in.Body != nil {
 				reason = in.Body.Reason
+				duration = time.Duration(in.Body.Duration) * time.Second
 			}
-			return nil, s.Service.BanUser(ctx, mustPrincipal(ctx), in.Place, id, reason)
+			return nil, s.Service.BanUser(ctx, mustPrincipal(ctx), in.Place, id, reason, duration)
 		}))
 
 	huma.Register(s.api, withAuth(operation("unban-user", http.MethodDelete, "/places/{place}/bans/{userID}",

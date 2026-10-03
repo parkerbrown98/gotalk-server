@@ -352,6 +352,15 @@ func (s *Service) DeleteAccount(ctx context.Context, p *Principal, password stri
 		if err := q.RemoveAllUserMemberships(ctx, p.User.ID); err != nil {
 			return err
 		}
+		// Posts stay (attributed to a deleted account); personal activity is erased.
+		for _, erase := range []func(context.Context, uuid.UUID) error{
+			q.RemoveUserReactions, q.DeleteUserNotifications, q.DeleteUserSubscriptions,
+			q.DeleteUserDrafts, q.DeleteUserTopicReads,
+		} {
+			if err := erase(ctx, p.User.ID); err != nil {
+				return err
+			}
+		}
 		if err := q.RevokeAllUserSessions(ctx, p.User.ID); err != nil {
 			return err
 		}

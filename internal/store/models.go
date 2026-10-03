@@ -10,6 +10,54 @@ import (
 	"github.com/google/uuid"
 )
 
+type AuditLog struct {
+	ID         uuid.UUID
+	PlaceID    uuid.UUID
+	ActorID    *uuid.UUID
+	Action     string
+	TargetType string
+	TargetID   *uuid.UUID
+	Reason     string
+	Metadata   []byte
+	CreatedAt  time.Time
+}
+
+type Board struct {
+	ID               uuid.UUID
+	PlaceID          uuid.UUID
+	ParentID         *uuid.UUID
+	Kind             string
+	Slug             string
+	Name             string
+	Description      string
+	Position         int32
+	ReplyMode        string
+	SolutionsEnabled bool
+	IsNsfw           bool
+	IsPublic         bool
+	TopicCount       int32
+	PostCount        int32
+	LastPostAt       *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+type BoardOverwrite struct {
+	BoardID uuid.UUID
+	RoleID  uuid.UUID
+	PlaceID uuid.UUID
+	Allow   int64
+	Deny    int64
+}
+
+type Draft struct {
+	UserID    uuid.UUID
+	Key       string
+	Data      []byte
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type InstanceSetting struct {
 	ID               int16
 	Name             string
@@ -39,6 +87,19 @@ type MemberRole struct {
 	RoleID  uuid.UUID
 }
 
+type Notification struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Kind      string
+	PlaceID   *uuid.UUID
+	TopicID   *uuid.UUID
+	PostID    *uuid.UUID
+	ActorID   *uuid.UUID
+	Data      []byte
+	ReadAt    *time.Time
+	CreatedAt time.Time
+}
+
 type Place struct {
 	ID          uuid.UUID
 	Slug        string
@@ -62,13 +123,65 @@ type PlaceBan struct {
 	Reason    string
 	BannedBy  *uuid.UUID
 	CreatedAt time.Time
+	ExpiresAt *time.Time
 }
 
 type PlaceMember struct {
-	PlaceID  uuid.UUID
-	UserID   uuid.UUID
-	Nickname *string
-	JoinedAt time.Time
+	PlaceID      uuid.UUID
+	UserID       uuid.UUID
+	Nickname     *string
+	JoinedAt     time.Time
+	TimeoutUntil *time.Time
+}
+
+type Post struct {
+	ID            uuid.UUID
+	TopicID       uuid.UUID
+	PlaceID       uuid.UUID
+	BoardID       uuid.UUID
+	AuthorID      *uuid.UUID
+	ParentID      *uuid.UUID
+	PostNumber    int32
+	Content       string
+	ReactionCount int32
+	EditCount     int32
+	EditedAt      *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     *time.Time
+	DeletedBy     *uuid.UUID
+}
+
+type PostReaction struct {
+	PostID    uuid.UUID
+	UserID    uuid.UUID
+	Emoji     string
+	CreatedAt time.Time
+}
+
+type PostRevision struct {
+	ID        uuid.UUID
+	PostID    uuid.UUID
+	EditorID  *uuid.UUID
+	Content   string
+	CreatedAt time.Time
+}
+
+type Report struct {
+	ID              uuid.UUID
+	PlaceID         uuid.UUID
+	ReporterID      *uuid.UUID
+	TargetType      string
+	PostID          *uuid.UUID
+	TargetUserID    *uuid.UUID
+	Reason          string
+	Details         string
+	ContentSnapshot string
+	Status          string
+	ResolvedBy      *uuid.UUID
+	ResolvedAt      *time.Time
+	ResolutionNote  string
+	CreatedAt       time.Time
 }
 
 type Role struct {
@@ -83,6 +196,12 @@ type Role struct {
 	UpdatedAt   time.Time
 }
 
+type SearchDocument struct {
+	PostID    uuid.UUID
+	Vector    interface{}
+	IndexedAt time.Time
+}
+
 type Session struct {
 	ID               uuid.UUID
 	UserID           uuid.UUID
@@ -93,6 +212,45 @@ type Session struct {
 	LastUsedAt       time.Time
 	ExpiresAt        time.Time
 	RevokedAt        *time.Time
+}
+
+type Subscription struct {
+	UserID     uuid.UUID
+	TargetType string
+	TargetID   uuid.UUID
+	PlaceID    uuid.UUID
+	Level      string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type Topic struct {
+	ID             uuid.UUID
+	PlaceID        uuid.UUID
+	BoardID        uuid.UUID
+	AuthorID       *uuid.UUID
+	Title          string
+	Slug           string
+	Tags           []string
+	IsPinned       bool
+	IsLocked       bool
+	IsArchived     bool
+	SolutionPostID *uuid.UUID
+	PostCount      int32
+	LastPostNumber int32
+	LastPostAt     time.Time
+	LastPosterID   *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      *time.Time
+	DeletedBy      *uuid.UUID
+}
+
+type TopicRead struct {
+	UserID             uuid.UUID
+	TopicID            uuid.UUID
+	LastReadPostNumber int32
+	UpdatedAt          time.Time
 }
 
 type User struct {

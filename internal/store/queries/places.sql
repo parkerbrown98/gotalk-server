@@ -9,6 +9,9 @@ SELECT * FROM places WHERE id = @id AND deleted_at IS NULL;
 -- name: GetPlaceBySlug :one
 SELECT * FROM places WHERE lower(slug) = lower(@slug) AND deleted_at IS NULL;
 
+-- name: ListPlacesByIDs :many
+SELECT * FROM places WHERE id = ANY(@ids::uuid[]) AND deleted_at IS NULL;
+
 -- name: LockPlace :one
 SELECT id FROM places WHERE id = @id AND deleted_at IS NULL FOR UPDATE;
 

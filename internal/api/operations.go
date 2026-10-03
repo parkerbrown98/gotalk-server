@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -11,9 +12,10 @@ import (
 )
 
 var (
-	secured       = []map[string][]string{{"bearer": {}}}
-	optionalAuth  = []map[string][]string{{"bearer": {}}, {}}
-	authRateLimit = map[string]any{rateLimitTierKey: ratelimit.TierAuth}
+	secured          = []map[string][]string{{"bearer": {}}}
+	optionalAuth     = []map[string][]string{{"bearer": {}}, {}}
+	authRateLimit    = map[string]any{rateLimitTierKey: ratelimit.TierAuth}
+	contentRateLimit = map[string]any{rateLimitTierKey: ratelimit.TierContent}
 )
 
 func operation(id, method, path, summary string, tag string) huma.Operation {
@@ -52,6 +54,38 @@ func withStatus(op huma.Operation, status int) huma.Operation {
 func withAuthRateLimit(op huma.Operation) huma.Operation {
 	op.Metadata = authRateLimit
 	return op
+}
+
+func withContentRateLimit(op huma.Operation) huma.Operation {
+	op.Metadata = contentRateLimit
+	return op
+}
+
+func parseOptionalID(field, v string) (*uuid.UUID, error) {
+	if v == "" {
+		return nil, nil
+	}
+	id, err := parseID(field, v)
+	return &id, err
+}
+
+func parseOptionalTime(field, v string) (*time.Time, error) {
+	if v == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil, apperr.Invalid("%s must be an RFC 3339 timestamp", field)
+	}
+	return &t, nil
+}
+
+func parseOptionalBool(v string) *bool {
+	if v == "" {
+		return nil
+	}
+	b := v == "true"
+	return &b
 }
 
 func parseID(field, v string) (uuid.UUID, error) {

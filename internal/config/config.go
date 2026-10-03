@@ -90,6 +90,13 @@ type RateLimit struct {
 	// Rates use the "<limit>-<period>" format, where period is S, M, H or D (e.g. "300-M").
 	Default string `koanf:"default"`
 	Auth    string `koanf:"auth"`
+	// Content limits creating topics, posts and reports, to slow down spam.
+	Content string `koanf:"content"`
+}
+
+// Tiers maps rate limit tier names to their configured rates.
+func (r RateLimit) Tiers() map[string]string {
+	return map[string]string{"default": r.Default, "auth": r.Auth, "content": r.Content}
 }
 
 type Log struct {
@@ -140,6 +147,7 @@ func defaults() map[string]any {
 		"ratelimit.enabled":        true,
 		"ratelimit.default":        "300-M",
 		"ratelimit.auth":           "10-M",
+		"ratelimit.content":        "30-M",
 		"log.level":                "info",
 		"log.format":               "json",
 		"setup.instance_name":      "Gotalk",
