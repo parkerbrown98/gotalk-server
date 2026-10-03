@@ -71,10 +71,10 @@ func (q *Queries) AddMentions(ctx context.Context, arg AddMentionsParams) error 
 
 const createChannel = `-- name: CreateChannel :one
 INSERT INTO channels (id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id,
-                      thread_message_id, dm_key)
+                      thread_message_id, dm_key, user_limit)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10, $11)
-RETURNING id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at
+        $10, $11, $12)
+RETURNING id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit
 `
 
 type CreateChannelParams struct {
@@ -89,6 +89,7 @@ type CreateChannelParams struct {
 	OwnerID         *uuid.UUID
 	ThreadMessageID *uuid.UUID
 	DmKey           *string
+	UserLimit       int32
 }
 
 func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error) {
@@ -104,6 +105,7 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 		arg.OwnerID,
 		arg.ThreadMessageID,
 		arg.DmKey,
+		arg.UserLimit,
 	)
 	var i Channel
 	err := row.Scan(
@@ -124,6 +126,7 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserLimit,
 	)
 	return i, err
 }
@@ -209,7 +212,7 @@ func (q *Queries) FilterPresenceAudience(ctx context.Context, arg FilterPresence
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels WHERE id = $1
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id uuid.UUID) (Channel, error) {
@@ -233,12 +236,13 @@ func (q *Queries) GetChannel(ctx context.Context, id uuid.UUID) (Channel, error)
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserLimit,
 	)
 	return i, err
 }
 
 const getChannelForUpdate = `-- name: GetChannelForUpdate :one
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels WHERE id = $1 FOR UPDATE
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetChannelForUpdate(ctx context.Context, id uuid.UUID) (Channel, error) {
@@ -262,12 +266,13 @@ func (q *Queries) GetChannelForUpdate(ctx context.Context, id uuid.UUID) (Channe
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserLimit,
 	)
 	return i, err
 }
 
 const getDMChannelByKey = `-- name: GetDMChannelByKey :one
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels WHERE dm_key = $1
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels WHERE dm_key = $1
 `
 
 func (q *Queries) GetDMChannelByKey(ctx context.Context, dmKey *string) (Channel, error) {
@@ -291,6 +296,7 @@ func (q *Queries) GetDMChannelByKey(ctx context.Context, dmKey *string) (Channel
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserLimit,
 	)
 	return i, err
 }
@@ -489,12 +495,12 @@ func (q *Queries) ListDMPartnerIDs(ctx context.Context, userID uuid.UUID) ([]uui
 }
 
 const listPlaceChannels = `-- name: ListPlaceChannels :many
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels
-WHERE place_id = $1 AND kind IN ('category', 'text')
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels
+WHERE place_id = $1 AND kind IN ('category', 'text', 'voice')
 ORDER BY position, created_at
 `
 
-// Categories and text channels; threads are listed per parent channel.
+// Categories, text and voice channels; threads are listed per parent channel.
 func (q *Queries) ListPlaceChannels(ctx context.Context, placeID *uuid.UUID) ([]Channel, error) {
 	rows, err := q.db.Query(ctx, listPlaceChannels, placeID)
 	if err != nil {
@@ -522,6 +528,7 @@ func (q *Queries) ListPlaceChannels(ctx context.Context, placeID *uuid.UUID) ([]
 			&i.MessageCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserLimit,
 		); err != nil {
 			return nil, err
 		}
@@ -558,7 +565,7 @@ func (q *Queries) ListPlaceMemberIDs(ctx context.Context, placeID uuid.UUID) ([]
 }
 
 const listThreads = `-- name: ListThreads :many
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels
 WHERE parent_id = $1 AND kind = 'thread' AND is_archived = $2
 ORDER BY last_message_at DESC NULLS LAST, id DESC
 LIMIT $4 OFFSET $3
@@ -603,6 +610,7 @@ func (q *Queries) ListThreads(ctx context.Context, arg ListThreadsParams) ([]Cha
 			&i.MessageCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserLimit,
 		); err != nil {
 			return nil, err
 		}
@@ -615,7 +623,7 @@ func (q *Queries) ListThreads(ctx context.Context, arg ListThreadsParams) ([]Cha
 }
 
 const listThreadsByMessage = `-- name: ListThreadsByMessage :many
-SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at FROM channels WHERE thread_message_id = ANY($1::uuid[])
+SELECT id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit FROM channels WHERE thread_message_id = ANY($1::uuid[])
 `
 
 func (q *Queries) ListThreadsByMessage(ctx context.Context, messageIds []uuid.UUID) ([]Channel, error) {
@@ -645,6 +653,7 @@ func (q *Queries) ListThreadsByMessage(ctx context.Context, messageIds []uuid.UU
 			&i.MessageCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserLimit,
 		); err != nil {
 			return nil, err
 		}
@@ -657,7 +666,7 @@ func (q *Queries) ListThreadsByMessage(ctx context.Context, messageIds []uuid.UU
 }
 
 const listUserDMChannels = `-- name: ListUserDMChannels :many
-SELECT c.id, c.place_id, c.parent_id, c.kind, c.name, c.topic, c.position, c.is_nsfw, c.owner_id, c.thread_message_id, c.is_archived, c.dm_key, c.last_message_id, c.last_message_at, c.message_count, c.created_at, c.updated_at FROM channels c
+SELECT c.id, c.place_id, c.parent_id, c.kind, c.name, c.topic, c.position, c.is_nsfw, c.owner_id, c.thread_message_id, c.is_archived, c.dm_key, c.last_message_id, c.last_message_at, c.message_count, c.created_at, c.updated_at, c.user_limit FROM channels c
 JOIN channel_recipients r ON r.channel_id = c.id
 WHERE r.user_id = $1
 ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
@@ -698,6 +707,7 @@ func (q *Queries) ListUserDMChannels(ctx context.Context, arg ListUserDMChannels
 			&i.MessageCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.UserLimit,
 		); err != nil {
 			return nil, err
 		}
@@ -736,7 +746,7 @@ func (q *Queries) ListUserPlaceIDs(ctx context.Context, userID uuid.UUID) ([]uui
 }
 
 const moveChildChannelsToRoot = `-- name: MoveChildChannelsToRoot :exec
-UPDATE channels SET parent_id = NULL, updated_at = now() WHERE parent_id = $1 AND kind = 'text'
+UPDATE channels SET parent_id = NULL, updated_at = now() WHERE parent_id = $1 AND kind IN ('text', 'voice')
 `
 
 func (q *Queries) MoveChildChannelsToRoot(ctx context.Context, parentID *uuid.UUID) error {
@@ -746,7 +756,7 @@ func (q *Queries) MoveChildChannelsToRoot(ctx context.Context, parentID *uuid.UU
 
 const nextChannelPosition = `-- name: NextChannelPosition :one
 SELECT (COALESCE(MAX(position), -1) + 1)::integer FROM channels
-WHERE place_id = $1 AND kind IN ('category', 'text')
+WHERE place_id = $1 AND kind IN ('category', 'text', 'voice')
   AND parent_id IS NOT DISTINCT FROM $2::uuid
 `
 
@@ -889,11 +899,12 @@ SET name        = COALESCE($1::text, name),
     position    = COALESCE($3::integer, position),
     is_nsfw     = COALESCE($4::boolean, is_nsfw),
     is_archived = COALESCE($5::boolean, is_archived),
-    owner_id    = COALESCE($6::uuid, owner_id),
-    parent_id   = CASE WHEN $7::boolean THEN $8::uuid ELSE parent_id END,
+    user_limit  = COALESCE($6::integer, user_limit),
+    owner_id    = COALESCE($7::uuid, owner_id),
+    parent_id   = CASE WHEN $8::boolean THEN $9::uuid ELSE parent_id END,
     updated_at  = now()
-WHERE id = $9
-RETURNING id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at
+WHERE id = $10
+RETURNING id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id, thread_message_id, is_archived, dm_key, last_message_id, last_message_at, message_count, created_at, updated_at, user_limit
 `
 
 type UpdateChannelParams struct {
@@ -902,6 +913,7 @@ type UpdateChannelParams struct {
 	Position   *int32
 	IsNsfw     *bool
 	IsArchived *bool
+	UserLimit  *int32
 	OwnerID    *uuid.UUID
 	SetParent  bool
 	ParentID   *uuid.UUID
@@ -917,6 +929,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 		arg.Position,
 		arg.IsNsfw,
 		arg.IsArchived,
+		arg.UserLimit,
 		arg.OwnerID,
 		arg.SetParent,
 		arg.ParentID,
@@ -941,6 +954,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 		&i.MessageCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.UserLimit,
 	)
 	return i, err
 }

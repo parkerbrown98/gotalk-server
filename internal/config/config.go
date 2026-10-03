@@ -34,6 +34,7 @@ type Config struct {
 	RateLimit RateLimit `koanf:"ratelimit"`
 	Log       Log       `koanf:"log"`
 	Setup     Setup     `koanf:"setup"`
+	Voice     Voice     `koanf:"voice"`
 }
 
 type Server struct {
@@ -106,6 +107,28 @@ type Log struct {
 	Format string `koanf:"format"`
 }
 
+// Voice connects the instance to a LiveKit server, which routes voice and video. Voice is
+// enabled when LiveKitURL is set.
+type Voice struct {
+	// LiveKitURL is the LiveKit URL clients connect to, e.g. wss://voice.example.com.
+	LiveKitURL string `koanf:"livekit_url"`
+	// LiveKitAPIURL is how this server reaches LiveKit's API when that differs from the
+	// client URL (e.g. http://livekit:7880 inside a container network).
+	LiveKitAPIURL    string `koanf:"livekit_api_url"`
+	LiveKitAPIKey    string `koanf:"livekit_api_key"`
+	LiveKitAPISecret string `koanf:"livekit_api_secret"`
+	// TokenTTL bounds how long a join token can be used to connect.
+	TokenTTL time.Duration `koanf:"token_ttl"`
+	// JoinTimeout is how long a joined user has to connect to LiveKit before their voice
+	// state is dropped.
+	JoinTimeout time.Duration `koanf:"join_timeout"`
+	// SessionRetention is how long ended voice sessions are kept for diagnostics.
+	SessionRetention time.Duration `koanf:"session_retention"`
+}
+
+// Enabled reports whether a LiveKit server is configured.
+func (v Voice) Enabled() bool { return v.LiveKitURL != "" }
+
 // Setup holds values for headless (non-interactive) first-run setup. When the admin
 // fields are all present and the instance is not yet configured, setup completes
 // automatically at boot.
@@ -155,6 +178,9 @@ func defaults() map[string]any {
 		"log.format":               "json",
 		"setup.instance_name":      "Gotalk",
 		"setup.registration_mode":  "open",
+		"voice.token_ttl":          "10m",
+		"voice.join_timeout":       "60s",
+		"voice.session_retention":  "720h",
 	}
 }
 
@@ -300,6 +326,33 @@ func (c *Config) Validate() error {
 				add("server.cors_allow_credentials cannot be combined with a wildcard origin")
 			}
 		}
+	}
+	if c.Voice.Enabled() {
+		for _, kv := range [][2]string{{"voice.livekit_url", c.Voice.LiveKitURL}, {"voice.livekit_api_url", c.Voice.LiveKitAPIURL}} {
+			key, v := kv[0], kv[1]
+			if v == "" {
+				continue
+			}
+			u, err := url.Parse(v)
+			if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss" && u.Scheme != "http" && u.Scheme != "https") {
+				add("%s must be an absolute ws, wss, http or https URL, got %q", key, v)
+			}
+		}
+		if c.Voice.LiveKitAPIKey == "" {
+			add("voice.livekit_api_key is required when voice.livekit_url is set")
+		}
+		if len(c.Voice.LiveKitAPISecret) < 32 {
+			add("voice.livekit_api_secret must be at least 32 characters when voice.livekit_url is set")
+		}
+	}
+	if c.Voice.TokenTTL < time.Minute || c.Voice.TokenTTL > 24*time.Hour {
+		add("voice.token_ttl must be between 1m and 24h")
+	}
+	if c.Voice.JoinTimeout < 10*time.Second {
+		add("voice.join_timeout must be at least 10s")
+	}
+	if c.Voice.SessionRetention < time.Hour {
+		add("voice.session_retention must be at least 1h")
 	}
 
 	if len(errs) > 0 {

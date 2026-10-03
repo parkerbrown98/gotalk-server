@@ -36,7 +36,7 @@ type APIInfo struct {
 type Features struct {
 	Forums bool   `json:"forums"`
 	Chat   bool   `json:"chat"`
-	Voice  bool   `json:"voice"`
+	Voice  bool   `json:"voice" doc:"Voice and video channels are available (a LiveKit server is configured)"`
 	Search string `json:"search" enum:"none,postgres,meilisearch"`
 }
 
@@ -97,7 +97,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		},
 		RegistrationMode: settings.RegistrationMode,
 		SetupRequired:    settings.SetupCompletedAt == nil,
-		Features:         Features{Forums: true, Chat: true, Search: "postgres"},
+		Features:         Features{Forums: true, Chat: true, Voice: s.Service.VoiceEnabled(), Search: "postgres"},
 		RateLimits:       limits,
 		Stats:            Stats{Users: stats.Users, Places: stats.Places},
 	}, nil
@@ -249,7 +249,22 @@ func (s *Server) preflightChecks(ctx context.Context) []SetupCheck {
 	}
 
 	checks = append(checks, SetupCheck{"email", "skipped", "email delivery is not available yet"})
+	checks = append(checks, s.voiceCheck(ctx))
 	return checks
+}
+
+// voiceCheck reports whether the configured LiveKit server is reachable.
+func (s *Server) voiceCheck(ctx context.Context) SetupCheck {
+	lk := s.Service.VoiceBackend()
+	if lk == nil {
+		return SetupCheck{"voice", "skipped", "not configured; set GOTALK_VOICE_LIVEKIT_URL and API credentials to enable voice channels"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := lk.Ping(ctx); err != nil {
+		return SetupCheck{"voice", "error", "LiveKit is unreachable or rejected the API key: " + err.Error()}
+	}
+	return SetupCheck{"voice", "ok", "connected to LiveKit at " + lk.URL()}
 }
 
 // handleHealthz is a liveness probe: it only reports that the process is serving.
@@ -285,6 +300,18 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		status, code = "unavailable", http.StatusServiceUnavailable
 	} else if required, err := s.Service.SetupRequired(ctx); err == nil && required {
 		status = "awaiting_setup"
+	}
+	// Voice is optional: an unreachable LiveKit degrades the instance but does not take it
+	// out of rotation.
+	if lk := s.Service.VoiceBackend(); lk == nil {
+		checks["voice"] = "not_configured"
+	} else if err := lk.Ping(ctx); err != nil {
+		checks["voice"] = "error: " + err.Error()
+		if status == "ready" {
+			status = "degraded"
+		}
+	} else {
+		checks["voice"] = "ok"
 	}
 	writeJSON(w, code, map[string]any{"status": status, "checks": checks})
 }

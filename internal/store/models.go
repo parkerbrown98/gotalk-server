@@ -68,6 +68,7 @@ type Channel struct {
 	MessageCount    int32
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	UserLimit       int32
 }
 
 type ChannelOverwrite struct {
@@ -202,11 +203,13 @@ type PlaceBan struct {
 }
 
 type PlaceMember struct {
-	PlaceID      uuid.UUID
-	UserID       uuid.UUID
-	Nickname     *string
-	JoinedAt     time.Time
-	TimeoutUntil *time.Time
+	PlaceID       uuid.UUID
+	UserID        uuid.UUID
+	Nickname      *string
+	JoinedAt      time.Time
+	TimeoutUntil  *time.Time
+	VoiceMuted    bool
+	VoiceDeafened bool
 }
 
 type Post struct {
@@ -344,4 +347,41 @@ type User struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       *time.Time
+}
+
+type VoiceSession struct {
+	ID               uuid.UUID
+	ChannelID        uuid.UUID
+	PlaceID          uuid.UUID
+	UserID           uuid.UUID
+	StartedAt        time.Time
+	ConnectedAt      *time.Time
+	EndedAt          *time.Time
+	EndReason        *string
+	TelemetrySamples int32
+	PacketLossAvg    float64
+	PacketLossMax    float64
+	JitterMsAvg      float64
+	RttMsAvg         float64
+	BitrateKbpsAvg   float64
+}
+
+type VoiceState struct {
+	UserID         uuid.UUID
+	ChannelID      uuid.UUID
+	PlaceID        uuid.UUID
+	VoiceSessionID uuid.UUID
+	AuthSessionID  uuid.UUID
+	SelfMute       bool
+	SelfDeaf       bool
+	SelfVideo      bool
+	SelfStream     bool
+	ServerMute     bool
+	ServerDeaf     bool
+	CanSpeak       bool
+	CanStream      bool
+	ParticipantSid *string
+	ConnectedAt    *time.Time
+	JoinedAt       time.Time
+	UpdatedAt      time.Time
 }

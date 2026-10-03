@@ -1,8 +1,8 @@
 -- name: CreateChannel :one
 INSERT INTO channels (id, place_id, parent_id, kind, name, topic, position, is_nsfw, owner_id,
-                      thread_message_id, dm_key)
+                      thread_message_id, dm_key, user_limit)
 VALUES (@id, @place_id, @parent_id, @kind, @name, @topic, @position, @is_nsfw, @owner_id,
-        @thread_message_id, @dm_key)
+        @thread_message_id, @dm_key, @user_limit)
 RETURNING *;
 
 -- name: GetChannel :one
@@ -15,14 +15,14 @@ SELECT * FROM channels WHERE id = @id FOR UPDATE;
 SELECT * FROM channels WHERE dm_key = @dm_key;
 
 -- name: ListPlaceChannels :many
--- Categories and text channels; threads are listed per parent channel.
+-- Categories, text and voice channels; threads are listed per parent channel.
 SELECT * FROM channels
-WHERE place_id = @place_id AND kind IN ('category', 'text')
+WHERE place_id = @place_id AND kind IN ('category', 'text', 'voice')
 ORDER BY position, created_at;
 
 -- name: NextChannelPosition :one
 SELECT (COALESCE(MAX(position), -1) + 1)::integer FROM channels
-WHERE place_id = @place_id AND kind IN ('category', 'text')
+WHERE place_id = @place_id AND kind IN ('category', 'text', 'voice')
   AND parent_id IS NOT DISTINCT FROM sqlc.narg('parent_id')::uuid;
 
 -- name: UpdateChannel :one
@@ -34,6 +34,7 @@ SET name        = COALESCE(sqlc.narg('name')::text, name),
     position    = COALESCE(sqlc.narg('position')::integer, position),
     is_nsfw     = COALESCE(sqlc.narg('is_nsfw')::boolean, is_nsfw),
     is_archived = COALESCE(sqlc.narg('is_archived')::boolean, is_archived),
+    user_limit  = COALESCE(sqlc.narg('user_limit')::integer, user_limit),
     owner_id    = COALESCE(sqlc.narg('owner_id')::uuid, owner_id),
     parent_id   = CASE WHEN @set_parent::boolean THEN sqlc.narg('parent_id')::uuid ELSE parent_id END,
     updated_at  = now()
@@ -41,7 +42,7 @@ WHERE id = @id
 RETURNING *;
 
 -- name: MoveChildChannelsToRoot :exec
-UPDATE channels SET parent_id = NULL, updated_at = now() WHERE parent_id = @parent_id AND kind = 'text';
+UPDATE channels SET parent_id = NULL, updated_at = now() WHERE parent_id = @parent_id AND kind IN ('text', 'voice');
 
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE id = @id;

@@ -46,3 +46,12 @@ setup:
   admin_username: ""           # set all three admin_* keys for headless setup
   admin_email: ""
   admin_password: ""
+
+voice:
+  livekit_url: ""              # LiveKit URL clients connect to (e.g. wss://voice.example.com); empty disables voice
+  livekit_api_url: ""          # how this server reaches LiveKit's API, if different (e.g. http://livekit:7880)
+  livekit_api_key: ""
+  livekit_api_secret: ""       # at least 32 characters
+  token_ttl: 10m               # how long a voice join token can be used to connect
+  join_timeout: 60s            # joins that never connect to LiveKit are dropped after this
+  session_retention: 720h      # how long ended voice sessions (with call quality) are kept

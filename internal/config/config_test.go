@@ -109,4 +109,38 @@ func TestExampleConfigIsValid(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, cfg.Server.TrustedProxyPrefixes(), 6)
 	assert.Equal(t, defaults()["database.url"], cfg.Database.URL, "empty url in the example keeps the default")
+	assert.False(t, cfg.Voice.Enabled(), "voice stays off until a LiveKit URL is set")
+}
+
+func TestVoiceConfig(t *testing.T) {
+	cfg, err := load("", environ())
+	require.NoError(t, err)
+	assert.False(t, cfg.Voice.Enabled())
+	assert.Equal(t, 10*time.Minute, cfg.Voice.TokenTTL)
+
+	// Credentials alone do not enable voice; the URL does.
+	_, err = load("", environ("GOTALK_VOICE_LIVEKIT_API_KEY=key"))
+	require.NoError(t, err)
+
+	cfg, err = load("", environ(
+		"GOTALK_VOICE_LIVEKIT_URL=wss://voice.example.com",
+		"GOTALK_VOICE_LIVEKIT_API_URL=http://livekit:7880",
+		"GOTALK_VOICE_LIVEKIT_API_KEY=key",
+		"GOTALK_VOICE_LIVEKIT_API_SECRET=0123456789abcdef0123456789abcdef",
+		"GOTALK_VOICE_TOKEN_TTL=2m",
+	))
+	require.NoError(t, err)
+	assert.True(t, cfg.Voice.Enabled())
+	assert.Equal(t, "http://livekit:7880", cfg.Voice.LiveKitAPIURL)
+	assert.Equal(t, 2*time.Minute, cfg.Voice.TokenTTL)
+
+	_, err = load("", environ(
+		"GOTALK_VOICE_LIVEKIT_URL=ftp://voice.example.com",
+		"GOTALK_VOICE_LIVEKIT_API_SECRET=short",
+		"GOTALK_VOICE_JOIN_TIMEOUT=1s",
+	))
+	require.Error(t, err)
+	for _, want := range []string{"voice.livekit_url", "voice.livekit_api_key", "voice.livekit_api_secret", "voice.join_timeout"} {
+		assert.ErrorContains(t, err, want)
+	}
 }

@@ -328,6 +328,7 @@ func (s *Service) DeletePlace(ctx context.Context, p *Principal, ref string) err
 	}
 	s.emit(ctx, s.q, Event{Type: EventPlaceDelete, Data: map[string]any{"place_id": place.ID}, Places: []uuid.UUID{place.ID}})
 	s.emit(ctx, s.q, Event{Control: &realtime.Control{PlaceID: &place.ID, Removed: true}})
+	s.queueVoiceSync(ctx, s.q, place.ID)
 	return nil
 }
 

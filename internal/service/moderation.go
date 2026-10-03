@@ -333,6 +333,7 @@ func (s *Service) TimeoutMember(ctx context.Context, p *Principal, ref string, u
 		if err := q.SetMemberTimeout(ctx, store.SetMemberTimeoutParams{PlaceID: place.ID, UserID: userID, TimeoutUntil: &until}); err != nil {
 			return err
 		}
+		s.queueVoiceSync(ctx, q, place.ID, userID)
 		if err := s.audit(ctx, q, place.ID, p, "member.timeout", "user", &userID, reason,
 			map[string]any{"until": until, "duration_seconds": int64(d.Seconds())}); err != nil {
 			return err
@@ -356,6 +357,7 @@ func (s *Service) ClearTimeout(ctx context.Context, p *Principal, ref string, us
 		if err := q.SetMemberTimeout(ctx, store.SetMemberTimeoutParams{PlaceID: place.ID, UserID: userID}); err != nil {
 			return err
 		}
+		s.queueVoiceSync(ctx, q, place.ID, userID)
 		if err := s.audit(ctx, q, place.ID, p, "member.timeout_clear", "user", &userID, "", nil); err != nil {
 			return err
 		}

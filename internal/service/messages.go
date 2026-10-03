@@ -165,8 +165,8 @@ func (s *Service) ListMessages(ctx context.Context, p *Principal, channelID uuid
 	if err != nil {
 		return nil, err
 	}
-	if cc.ch.Kind == kindCategory {
-		return nil, apperr.Invalid("categories do not have messages")
+	if !hasMessages(cc.ch.Kind) {
+		return nil, noMessages(cc.ch.Kind)
 	}
 	var msgs []store.Message
 	switch {
@@ -377,8 +377,8 @@ func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.
 		if err != nil {
 			return err
 		}
-		if ch.Kind == kindCategory {
-			return apperr.Invalid("categories do not have messages")
+		if !hasMessages(ch.Kind) {
+			return noMessages(ch.Kind)
 		}
 		if err := cc.require(permissions.SendMessages); err != nil {
 			return err
@@ -773,8 +773,8 @@ func (s *Service) StartTyping(ctx context.Context, p *Principal, channelID uuid.
 	if err != nil {
 		return err
 	}
-	if cc.ch.Kind == kindCategory {
-		return apperr.Invalid("categories do not have messages")
+	if !hasMessages(cc.ch.Kind) {
+		return noMessages(cc.ch.Kind)
 	}
 	if err := cc.require(permissions.SendMessages); err != nil {
 		return err

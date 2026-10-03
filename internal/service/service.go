@@ -15,12 +15,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
 	"github.com/parkerbrown98/gotalk-server/internal/auth"
 	"github.com/parkerbrown98/gotalk-server/internal/config"
+	"github.com/parkerbrown98/gotalk-server/internal/livekit"
 	"github.com/parkerbrown98/gotalk-server/internal/store"
 )
 
@@ -32,15 +34,34 @@ type Service struct {
 	tokens    *auth.TokenIssuer
 	setupDone atomic.Bool
 	events    atomic.Pointer[Publisher]
-	// pending buffers events emitted inside a transaction, keyed by its *store.Queries,
-	// until the transaction commits.
+	// voice is nil when no LiveKit server is configured.
+	voice *livekit.Client
+	// pending buffers what a transaction does after it commits (events to publish, hooks
+	// to run), keyed by its *store.Queries.
 	pending sync.Map
+}
+
+// txState is the work a transaction defers until it commits.
+type txState struct {
+	events []Event
+	// voice lists places whose voice participants must be re-checked, with the users to
+	// check (nil means everyone).
+	voice map[uuid.UUID][]uuid.UUID
+	hooks []func(context.Context)
 }
 
 // New prepares the service, creating the instance settings row (with a generated JWT
 // secret and setup token) on first boot.
 func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger) (*Service, error) {
 	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log}
+	if cfg.Voice.Enabled() {
+		v := cfg.Voice
+		client, err := livekit.New(v.LiveKitURL, v.LiveKitAPIURL, v.LiveKitAPIKey, v.LiveKitAPISecret)
+		if err != nil {
+			return nil, err
+		}
+		s.voice = client
+	}
 
 	secret := make([]byte, 64)
 	if _, err := rand.Read(secret); err != nil {
@@ -76,20 +97,37 @@ func (s *Service) Pool() *pgxpool.Pool { return s.pool }
 func (s *Service) Config() *config.Config { return s.cfg }
 
 func (s *Service) tx(ctx context.Context, fn func(q *store.Queries) error) error {
-	var events []Event
+	state := &txState{}
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		s.pending.Store(q, &events)
+		s.pending.Store(q, state)
 		defer s.pending.Delete(q)
 		return fn(q)
 	})
 	if err != nil {
 		return err
 	}
-	for _, ev := range events {
+	for _, ev := range state.events {
 		s.publish(ctx, ev)
 	}
+	for placeID, users := range state.voice {
+		s.syncVoice(ctx, placeID, users)
+	}
+	for _, hook := range state.hooks {
+		hook(ctx)
+	}
 	return nil
+}
+
+// afterCommit runs fn once the transaction that q belongs to commits, or right away when
+// q is not transactional. Use it for side effects outside the database.
+func (s *Service) afterCommit(ctx context.Context, q *store.Queries, fn func(context.Context)) {
+	if st, ok := s.pending.Load(q); ok {
+		state := st.(*txState)
+		state.hooks = append(state.hooks, fn)
+		return
+	}
+	fn(ctx)
 }
 
 func notFound(err error, format string, args ...any) error {

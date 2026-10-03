@@ -31,9 +31,31 @@ const (
 // dmPermissions is what every recipient may do in a direct message.
 const dmPermissions = permissions.ViewChannels | permissions.SendMessages | permissions.AddReactions | permissions.AttachFiles
 
+// hasMessages reports whether channels of kind hold messages.
+func hasMessages(kind string) bool { return kind != kindCategory && kind != kindVoice }
+
+// noMessages rejects message operations on channels without messages.
+func noMessages(kind string) error {
+	if kind == kindVoice {
+		return apperr.Invalid("voice channels do not have messages")
+	}
+	return apperr.Invalid("categories do not have messages")
+}
+
+// overwritable is what a role overwrite may allow or deny on a channel of kind.
+func overwritable(kind string) permissions.Permission {
+	switch kind {
+	case kindVoice:
+		return permissions.Voice
+	case kindCategory:
+		return permissions.Chat | permissions.Voice
+	}
+	return permissions.Chat
+}
+
 // chatScope is a place's channels plus their overwrites, loaded once so permissions can be
-// evaluated in memory. Only categories and text channels are loaded; threads use their
-// parent's permissions.
+// evaluated in memory. Only categories, text and voice channels are loaded; threads use
+// their parent's permissions.
 type chatScope struct {
 	place       store.Place
 	acc         Access
@@ -371,7 +393,7 @@ func (s *Service) channelViews(ctx context.Context, q *store.Queries, p *Princip
 	}
 	for i, ch := range chans {
 		v := ChannelView{Channel: ch, Recipients: recipients[ch.ID]}
-		if p != nil && ch.Kind != kindCategory {
+		if p != nil && hasMessages(ch.Kind) {
 			pp := perms(ch)
 			v.Permissions = &pp
 			r := reads[ch.ID]
@@ -436,6 +458,8 @@ type CreateChannelInput struct {
 	Topic    string
 	ParentID *uuid.UUID
 	IsNSFW   bool
+	// UserLimit caps a voice channel's participants; 0 is unlimited.
+	UserLimit int32
 }
 
 type ChannelUpdate struct {
@@ -446,6 +470,20 @@ type ChannelUpdate struct {
 	Position   *int32
 	IsNSFW     *bool
 	IsArchived *bool
+	UserLimit  *int32
+}
+
+func validateUserLimit(kind string, limit *int32) error {
+	if limit == nil || *limit == 0 {
+		return nil
+	}
+	if kind != kindVoice {
+		return apperr.Invalid("only voice channels have a user limit")
+	}
+	if *limit < 0 || *limit > maxVoiceUserLimit {
+		return apperr.Invalid("user_limit must be between 0 (unlimited) and %d", maxVoiceUserLimit)
+	}
+	return nil
 }
 
 func normalizeChannelName(name *string) error {
@@ -495,21 +533,22 @@ func (s *Service) emitChannelChange(ctx context.Context, q *store.Queries, event
 	ev := Event{Type: eventType, Data: view, Places: []uuid.UUID{*ch.PlaceID}, ChannelID: &routeID}
 	if invalidate {
 		ev.Control = &realtime.Control{PlaceID: ch.PlaceID, Invalidate: true}
+		s.queueVoiceSync(ctx, q, *ch.PlaceID)
 	}
 	s.emit(ctx, q, ev)
 	return nil
 }
 
-// CreateChannel adds a category or text channel (MANAGE_CHANNELS, in the parent category
-// when given).
+// CreateChannel adds a category, text or voice channel (MANAGE_CHANNELS, in the parent
+// category when given).
 func (s *Service) CreateChannel(ctx context.Context, p *Principal, ref string, in CreateChannelInput) (ChannelView, error) {
 	if in.Kind == "" {
 		in.Kind = kindText
 	}
-	if in.Kind != kindText && in.Kind != kindCategory {
-		return ChannelView{}, apperr.Invalid("kind must be text or category")
+	if in.Kind != kindText && in.Kind != kindCategory && in.Kind != kindVoice {
+		return ChannelView{}, apperr.Invalid("kind must be text, voice or category")
 	}
-	if err := errors.Join(normalizeChannelName(&in.Name), validateChannelTopic(&in.Topic)); err != nil {
+	if err := errors.Join(normalizeChannelName(&in.Name), validateChannelTopic(&in.Topic), validateUserLimit(in.Kind, &in.UserLimit)); err != nil {
 		return ChannelView{}, firstAppErr(err)
 	}
 	var view ChannelView
@@ -540,7 +579,7 @@ func (s *Service) CreateChannel(ctx context.Context, p *Principal, ref string, i
 		}
 		ch, err := q.CreateChannel(ctx, store.CreateChannelParams{
 			ID: id, PlaceID: &c.place.ID, ParentID: in.ParentID, Kind: in.Kind, Name: in.Name, Topic: in.Topic,
-			Position: pos, IsNsfw: in.IsNSFW,
+			Position: pos, IsNsfw: in.IsNSFW, UserLimit: in.UserLimit,
 		})
 		if err != nil {
 			return err
@@ -580,11 +619,11 @@ func (s *Service) UpdateChannel(ctx context.Context, p *Principal, channelID uui
 		case kindDM:
 			return apperr.Invalid("direct messages cannot be edited")
 		case kindGroupDM:
-			if in.Topic != nil || in.ParentID != nil || in.Position != nil || in.IsNSFW != nil || in.IsArchived != nil {
+			if in.Topic != nil || in.ParentID != nil || in.Position != nil || in.IsNSFW != nil || in.IsArchived != nil || in.UserLimit != nil {
 				return apperr.Invalid("only the name of a group conversation can be changed")
 			}
 		case kindThread:
-			if in.Topic != nil || in.ParentID != nil || in.Position != nil || in.IsNSFW != nil {
+			if in.Topic != nil || in.ParentID != nil || in.Position != nil || in.IsNSFW != nil || in.UserLimit != nil {
 				return apperr.Invalid("only a thread's name and archived state can be changed")
 			}
 			owner := cc.ch.OwnerID != nil && *cc.ch.OwnerID == p.User.ID && cc.has(permissions.SendMessages)
@@ -596,13 +635,16 @@ func (s *Service) UpdateChannel(ctx context.Context, p *Principal, channelID uui
 			if in.IsArchived != nil {
 				return apperr.Invalid("only threads can be archived")
 			}
+			if err := validateUserLimit(cc.ch.Kind, in.UserLimit); err != nil {
+				return err
+			}
 			if _, err := q.LockPlace(ctx, cc.scope.place.ID); err != nil {
 				return err
 			}
 			if !cc.has(permissions.ManageChannels) {
 				return missing(permissions.ManageChannels)
 			}
-			params.Topic, params.Position, params.IsNsfw = in.Topic, in.Position, in.IsNSFW
+			params.Topic, params.Position, params.IsNsfw, params.UserLimit = in.Topic, in.Position, in.IsNSFW, in.UserLimit
 			if in.ParentID != nil {
 				var parent *uuid.UUID
 				if *in.ParentID != "" {
@@ -645,6 +687,7 @@ func (s *Service) UpdateChannel(ctx context.Context, p *Principal, channelID uui
 			setIf(meta, "is_nsfw", in.IsNSFW)
 			setIf(meta, "is_archived", in.IsArchived)
 			setIf(meta, "parent_id", in.ParentID)
+			setIf(meta, "user_limit", in.UserLimit)
 			if err := s.audit(ctx, q, cc.scope.place.ID, p, "channel.update", "channel", &updated.ID, "", meta); err != nil {
 				return err
 			}
@@ -656,8 +699,8 @@ func (s *Service) UpdateChannel(ctx context.Context, p *Principal, channelID uui
 }
 
 // DeleteChannel removes a place channel with all its messages and threads (MANAGE_CHANNELS).
-// Deleting a category moves its channels to the top level. Thread creators and
-// MANAGE_MESSAGES may delete threads.
+// Deleting a category moves its channels to the top level, and deleting a voice channel
+// disconnects its participants. Thread creators and MANAGE_MESSAGES may delete threads.
 func (s *Service) DeleteChannel(ctx context.Context, p *Principal, channelID uuid.UUID) error {
 	return s.tx(ctx, func(q *store.Queries) error {
 		cc, err := s.channelFor(ctx, q, p, channelID)
@@ -714,6 +757,11 @@ func (s *Service) DeleteChannel(ctx context.Context, p *Principal, channelID uui
 		if err := q.DeleteTargetSubscriptions(ctx, store.DeleteTargetSubscriptionsParams{TargetType: "channel", TargetID: ch.ID}); err != nil {
 			return err
 		}
+		if ch.Kind == kindVoice {
+			if err := s.voiceChannelDeleted(ctx, q, ch); err != nil {
+				return err
+			}
+		}
 		if err := q.DeleteChannel(ctx, ch.ID); err != nil {
 			return err
 		}
@@ -731,14 +779,14 @@ func (s *Service) DeleteChannel(ctx context.Context, p *Principal, channelID uui
 	})
 }
 
-// placeChannel resolves a category or text channel the caller can see.
+// placeChannel resolves a category, text or voice channel the caller can see.
 func (s *Service) placeChannel(ctx context.Context, q *store.Queries, p *Principal, channelID uuid.UUID) (*channelCtx, error) {
 	cc, err := s.channelFor(ctx, q, p, channelID)
 	if err != nil {
 		return nil, err
 	}
-	if cc.ch.Kind != kindText && cc.ch.Kind != kindCategory {
-		return nil, apperr.Invalid("only categories and text channels have permission overwrites")
+	if cc.ch.Kind != kindText && cc.ch.Kind != kindCategory && cc.ch.Kind != kindVoice {
+		return nil, apperr.Invalid("only categories, text and voice channels have permission overwrites")
 	}
 	return cc, nil
 }
@@ -780,13 +828,14 @@ func (s *Service) overwriteChannelGuard(ctx context.Context, q *store.Queries, p
 	return cc, role, nil
 }
 
-// SetChannelOverwrite allows or denies chat permissions for a role within a category or
-// text channel. Callers may only set bits they hold in that channel.
+// SetChannelOverwrite allows or denies permissions for a role within a category, text or
+// voice channel: chat permissions on text channels, voice permissions on voice channels,
+// and both on categories. Callers may only set bits they hold in that channel.
 func (s *Service) SetChannelOverwrite(ctx context.Context, p *Principal, channelID, roleID uuid.UUID, allow, deny int64) (permissions.Overwrite, error) {
 	a, d := permissions.Permission(allow), permissions.Permission(deny)
-	if (a|d)&^permissions.Chat != 0 {
-		return permissions.Overwrite{}, apperr.Invalid("overwrites may only contain chat permissions: %s",
-			strings.Join(permissions.Names(permissions.Chat), ", "))
+	if (a|d)&^(permissions.Chat|permissions.Voice) != 0 {
+		return permissions.Overwrite{}, apperr.Invalid("overwrites may only contain channel permissions: %s",
+			strings.Join(permissions.Names(permissions.Chat|permissions.Voice), ", "))
 	}
 	if a&d != 0 {
 		return permissions.Overwrite{}, apperr.Invalid("a permission cannot be both allowed and denied")
@@ -796,6 +845,10 @@ func (s *Service) SetChannelOverwrite(ctx context.Context, p *Principal, channel
 		cc, role, err := s.overwriteChannelGuard(ctx, q, p, channelID, roleID)
 		if err != nil {
 			return err
+		}
+		if allowed := overwritable(cc.ch.Kind); (a|d)&^allowed != 0 {
+			return apperr.Invalid("overwrites on %s channels may only contain: %s", cc.ch.Kind,
+				strings.Join(permissions.Names(allowed), ", "))
 		}
 		if (a|d)&^cc.perms != 0 {
 			return apperr.Forbidden("you cannot allow or deny permissions you do not have in this channel")
@@ -934,6 +987,9 @@ func (s *Service) SetChannelSubscription(ctx context.Context, p *Principal, chan
 	}
 	if cc.ch.Kind == kindCategory {
 		return apperr.Invalid("mute the channels in a category, or the whole place, instead")
+	}
+	if cc.ch.Kind == kindVoice {
+		return apperr.Invalid("voice channels do not send notifications")
 	}
 	return s.setSubscription(ctx, s.q, p, cc.placeID(), "channel", cc.ch.ID, level)
 }

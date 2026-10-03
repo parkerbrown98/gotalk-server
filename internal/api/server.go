@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -48,11 +49,15 @@ type Server struct {
 	proxies []netip.Prefix
 	hub     *realtime.Hub
 	handler http.Handler
+	// stopVoice ends the voice maintenance loop; voiceDone closes once it has returned.
+	stopVoice context.CancelFunc
+	voiceDone chan struct{}
+	closeOnce sync.Once
 }
 
 // New builds the full HTTP handler and starts the real-time gateway.
 func New(d Deps) (*Server, error) {
-	s := &Server{Deps: d, proxies: d.Config.Server.TrustedProxyPrefixes()}
+	s := &Server{Deps: d, proxies: d.Config.Server.TrustedProxyPrefixes(), voiceDone: make(chan struct{})}
 
 	broker, presence := realtime.NewMemoryBroker(), realtime.NewMemoryPresence()
 	if d.Redis != nil {
@@ -63,6 +68,13 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("starting the real-time gateway: %w", err)
 	}
 	d.Service.SetPublisher(gatewayPublisher{hub: s.hub, log: d.Logger})
+
+	voiceCtx, stopVoice := context.WithCancel(context.Background())
+	s.stopVoice = stopVoice
+	go func() {
+		defer close(s.voiceDone)
+		d.Service.RunVoiceMaintenance(voiceCtx)
+	}()
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -88,6 +100,7 @@ func New(d Deps) (*Server, error) {
 
 	r.Route(APIPrefix, func(r chi.Router) {
 		r.Get(gatewayPathSuffix, s.handleGateway)
+		r.Post(voiceWebhookPath, s.handleVoiceWebhook)
 
 		cfg := huma.DefaultConfig("Gotalk API", d.Version)
 		cfg.Info.Description = "REST API for a Gotalk instance. Any client may target any instance; " +
@@ -118,6 +131,7 @@ func New(d Deps) (*Server, error) {
 		s.registerChannels()
 		s.registerMessages()
 		s.registerDirectMessages()
+		s.registerVoice()
 	})
 
 	s.handler = r
@@ -126,9 +140,13 @@ func New(d Deps) (*Server, error) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
 
-// Close disconnects every gateway client (close code 1001) and stops routing events. It
-// is safe to call more than once.
+// Close disconnects every gateway client (close code 1001), stops routing events and stops
+// voice maintenance. It is safe to call more than once.
 func (s *Server) Close() {
+	s.closeOnce.Do(func() {
+		s.stopVoice()
+		<-s.voiceDone
+	})
 	s.Service.SetPublisher(nil)
 	s.hub.Close()
 }

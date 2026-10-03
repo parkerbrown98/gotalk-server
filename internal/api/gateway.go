@@ -40,6 +40,7 @@ const (
 	clientQueue       = 256
 	maxOpsPerMinute   = 120
 	gatewayPathSuffix = "/gateway"
+	voiceWebhookPath  = "/voice/webhook"
 )
 
 type gatewayFrame struct {
@@ -54,6 +55,10 @@ type identifyData struct {
 
 type presenceData struct {
 	Status string `json:"status"`
+}
+
+type speakingData struct {
+	Speaking *bool `json:"speaking"`
 }
 
 func encodeFrame(op string, data any) []byte {
@@ -155,6 +160,17 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(closeUnknownError, "internal error")
 		return
 	}
+	voice, err := s.Service.MyVoiceState(ctx, p.User.ID)
+	if err != nil {
+		s.Logger.Error("loading voice state for gateway", "error", err)
+		_ = conn.Close(closeUnknownError, "internal error")
+		return
+	}
+	var voiceState *VoiceState
+	if voice != nil {
+		v := toVoiceState(*voice)
+		voiceState = &v
+	}
 
 	client := realtime.NewClient(p.User.ID, p.SessionID, status, clientQueue)
 	placeIDs := make([]string, len(places))
@@ -164,7 +180,7 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	// READY is queued before registering so it precedes every other event.
 	client.Send(realtime.EncodeDispatch("READY", mustJSON(map[string]any{
 		"user": toSelfUser(p.User), "session_id": p.SessionID.String(), "place_ids": placeIDs,
-		"status": status, "heartbeat_interval": interval.Milliseconds(),
+		"status": status, "heartbeat_interval": interval.Milliseconds(), "voice_state": voiceState,
 	})))
 	s.hub.Register(ctx, client, places)
 
@@ -285,6 +301,15 @@ func (s *Server) gatewayReader(ctx context.Context, conn *websocket.Conn, client
 				return
 			}
 			s.hub.SetStatus(ctx, client, d.Status)
+		case "voice_speaking":
+			var d speakingData
+			if err := json.Unmarshal(f.Data, &d); err != nil || d.Speaking == nil {
+				client.Close(closeDecodeError, "voice_speaking needs speaking")
+				return
+			}
+			if err := s.Service.SetSpeaking(ctx, client.UserID, *d.Speaking); err != nil {
+				s.Logger.Warn("relaying speaking state", "error", err)
+			}
 		case "identify":
 			client.Close(closeAlreadyIdentify, "already identified")
 			return
@@ -328,6 +353,10 @@ func encodeEventData(v any) (json.RawMessage, error) {
 		return json.Marshal(toNotification(d))
 	case service.RecipientEvent:
 		return json.Marshal(map[string]any{"channel_id": d.ChannelID, "user": toUser(d.User)})
+	case service.VoiceStateView:
+		return json.Marshal(toVoiceState(d))
+	case service.VoiceConnection:
+		return json.Marshal(toVoiceConnection(d))
 	case map[string]any:
 		return json.Marshal(d)
 	case nil:

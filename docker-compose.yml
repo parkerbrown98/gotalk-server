@@ -22,6 +22,11 @@ services:
       GOTALK_SETUP_ADMIN_USERNAME: ${GOTALK_SETUP_ADMIN_USERNAME:-}
       GOTALK_SETUP_ADMIN_EMAIL: ${GOTALK_SETUP_ADMIN_EMAIL:-}
       GOTALK_SETUP_ADMIN_PASSWORD: ${GOTALK_SETUP_ADMIN_PASSWORD:-}
+      # Voice is enabled when GOTALK_VOICE_LIVEKIT_URL is set (see the "voice" profile below).
+      GOTALK_VOICE_LIVEKIT_URL: ${GOTALK_VOICE_LIVEKIT_URL:-}
+      GOTALK_VOICE_LIVEKIT_API_URL: ${GOTALK_VOICE_LIVEKIT_API_URL:-http://livekit:7880}
+      GOTALK_VOICE_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-gotalk}
+      GOTALK_VOICE_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-gotalk-local-voice-secret-change-me}
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,6 +57,33 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Voice and video media server. Opt in with:
+  #   GOTALK_VOICE_LIVEKIT_URL=ws://localhost:7880 docker compose --profile voice up -d
+  # Clients connect to it directly, so beyond localhost set GOTALK_VOICE_LIVEKIT_URL to an
+  # address they can reach (wss:// behind TLS), LIVEKIT_NODE_IP to this host's public IP,
+  # and open 7881/tcp and 7882/udp.
+  livekit:
+    image: livekit/livekit-server:v1.13
+    profiles: ["voice"]
+    restart: unless-stopped
+    command: ["--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+        keys:
+          ${LIVEKIT_API_KEY:-gotalk}: ${LIVEKIT_API_SECRET:-gotalk-local-voice-secret-change-me}
+        webhook:
+          api_key: ${LIVEKIT_API_KEY:-gotalk}
+          urls:
+            - http://gotalk:8080/api/v1/voice/webhook
 
 volumes:
   postgres-data:

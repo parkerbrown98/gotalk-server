@@ -18,7 +18,7 @@ type Channel struct {
 	ID              string     `json:"id" format:"uuid"`
 	PlaceID         *string    `json:"place_id" format:"uuid" doc:"null for direct messages"`
 	ParentID        *string    `json:"parent_id" format:"uuid" doc:"The category of a text channel, or the text channel of a thread"`
-	Kind            string     `json:"kind" enum:"category,text,thread,dm,group_dm"`
+	Kind            string     `json:"kind" enum:"category,text,voice,thread,dm,group_dm"`
 	Name            string     `json:"name"`
 	Topic           string     `json:"topic"`
 	Position        int32      `json:"position" doc:"Order among siblings, ascending"`
@@ -27,6 +27,7 @@ type Channel struct {
 	ThreadMessageID *string    `json:"thread_message_id" format:"uuid" doc:"The message a thread was started from"`
 	IsArchived      bool       `json:"is_archived" doc:"Archived threads are hidden from default listings; a new message unarchives them"`
 	MessageCount    int32      `json:"message_count"`
+	UserLimit       int32      `json:"user_limit" doc:"Voice channels: maximum participants, 0 for unlimited"`
 	LastMessageID   *string    `json:"last_message_id" format:"uuid"`
 	LastMessageAt   *time.Time `json:"last_message_at"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -44,6 +45,7 @@ func toChannel(v service.ChannelView) Channel {
 		ID: c.ID.String(), PlaceID: idString(c.PlaceID), ParentID: idString(c.ParentID), Kind: c.Kind,
 		Name: c.Name, Topic: c.Topic, Position: c.Position, IsNSFW: c.IsNsfw, OwnerID: idString(c.OwnerID),
 		ThreadMessageID: idString(c.ThreadMessageID), IsArchived: c.IsArchived, MessageCount: c.MessageCount,
+		UserLimit:     c.UserLimit,
 		LastMessageID: idString(c.LastMessageID), LastMessageAt: c.LastMessageAt, CreatedAt: c.CreatedAt,
 	}
 	if c.PlaceID == nil {

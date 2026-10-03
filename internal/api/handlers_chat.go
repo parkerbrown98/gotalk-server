@@ -62,11 +62,12 @@ func (r MessageReactionPath) emoji() string {
 }
 
 type CreateChannelRequest struct {
-	Kind     string `json:"kind,omitempty" enum:"text,category" default:"text"`
-	Name     string `json:"name" minLength:"1" maxLength:"100"`
-	Topic    string `json:"topic,omitempty" maxLength:"1024"`
-	ParentID string `json:"parent_id,omitempty" format:"uuid" doc:"Category to place a text channel in"`
-	IsNSFW   bool   `json:"is_nsfw,omitempty"`
+	Kind      string `json:"kind,omitempty" enum:"text,voice,category" default:"text"`
+	Name      string `json:"name" minLength:"1" maxLength:"100"`
+	Topic     string `json:"topic,omitempty" maxLength:"1024"`
+	ParentID  string `json:"parent_id,omitempty" format:"uuid" doc:"Category to place a text or voice channel in"`
+	IsNSFW    bool   `json:"is_nsfw,omitempty"`
+	UserLimit int32  `json:"user_limit,omitempty" minimum:"0" maximum:"99" doc:"Voice channels: maximum participants, 0 for unlimited"`
 }
 
 type UpdateChannelRequest struct {
@@ -76,6 +77,7 @@ type UpdateChannelRequest struct {
 	Position   *int32  `json:"position,omitempty" minimum:"0"`
 	IsNSFW     *bool   `json:"is_nsfw,omitempty"`
 	IsArchived *bool   `json:"is_archived,omitempty" doc:"Threads only"`
+	UserLimit  *int32  `json:"user_limit,omitempty" minimum:"0" maximum:"99" doc:"Voice channels only; 0 for unlimited"`
 }
 
 type CreateThreadRequest struct {
@@ -125,7 +127,7 @@ func withChatRateLimit(op huma.Operation) huma.Operation {
 
 func (s *Server) registerChannels() {
 	huma.Register(s.api, withAuth(operation("list-channels", http.MethodGet, "/places/{place}/channels",
-		"List the categories and text channels the caller can see, each category followed by its channels", tagChannels)),
+		"List the categories, text and voice channels the caller can see, each category followed by its channels", tagChannels)),
 		handle(s, func(ctx context.Context, in *PlacePath) (*Body[[]Channel], error) {
 			chans, err := s.Service.ListChannels(ctx, mustPrincipal(ctx), in.Place)
 			if err != nil {
@@ -135,7 +137,7 @@ func (s *Server) registerChannels() {
 		}))
 
 	huma.Register(s.api, withStatus(withAuth(operation("create-channel", http.MethodPost, "/places/{place}/channels",
-		"Create a text channel or category (MANAGE_CHANNELS)", tagChannels)), http.StatusCreated),
+		"Create a text channel, voice channel or category (MANAGE_CHANNELS)", tagChannels)), http.StatusCreated),
 		handle(s, func(ctx context.Context, in *struct {
 			PlacePath
 			Body CreateChannelRequest
@@ -146,7 +148,7 @@ func (s *Server) registerChannels() {
 			}
 			b := in.Body
 			v, err := s.Service.CreateChannel(ctx, mustPrincipal(ctx), in.Place, service.CreateChannelInput{
-				Kind: b.Kind, Name: b.Name, Topic: b.Topic, ParentID: parent, IsNSFW: b.IsNSFW,
+				Kind: b.Kind, Name: b.Name, Topic: b.Topic, ParentID: parent, IsNSFW: b.IsNSFW, UserLimit: b.UserLimit,
 			})
 			if err != nil {
 				return nil, err
@@ -181,6 +183,7 @@ func (s *Server) registerChannels() {
 			b := in.Body
 			v, err := s.Service.UpdateChannel(ctx, mustPrincipal(ctx), id, service.ChannelUpdate{
 				Name: b.Name, Topic: b.Topic, ParentID: b.ParentID, Position: b.Position, IsNSFW: b.IsNSFW, IsArchived: b.IsArchived,
+				UserLimit: b.UserLimit,
 			})
 			if err != nil {
 				return nil, err
@@ -213,7 +216,7 @@ func (s *Server) registerChannels() {
 		}))
 
 	huma.Register(s.api, withAuth(operation("set-channel-overwrite", http.MethodPut, "/channels/{channelID}/overwrites/{roleID}",
-		"Allow or deny chat permissions for a role within a category or channel (MANAGE_CHANNELS)", tagChannels)),
+		"Allow or deny permissions for a role within a category, text or voice channel (MANAGE_CHANNELS)", tagChannels)),
 		handle(s, func(ctx context.Context, in *struct {
 			ChannelRolePath
 			Body OverwriteRequest

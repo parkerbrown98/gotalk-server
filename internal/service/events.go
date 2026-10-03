@@ -29,6 +29,9 @@ const (
 	EventChannelRead        = "CHANNEL_READ"
 	EventReadReceipt        = "READ_RECEIPT"
 	EventNotificationCreate = "NOTIFICATION_CREATE"
+	EventVoiceStateUpdate   = "VOICE_STATE_UPDATE"
+	EventVoiceServerUpdate  = "VOICE_SERVER_UPDATE"
+	EventVoiceSpeaking      = "VOICE_SPEAKING"
 )
 
 // Event is a real-time update for gateway clients. Data is a service view (or a plain map)
@@ -69,12 +72,35 @@ func (s *Service) publisher() Publisher {
 // emit publishes ev once the transaction that q belongs to commits (or right away when q
 // is not transactional), so clients never hear about changes that were rolled back.
 func (s *Service) emit(ctx context.Context, q *store.Queries, ev Event) {
-	if buf, ok := s.pending.Load(q); ok {
-		events := buf.(*[]Event)
-		*events = append(*events, ev)
+	if st, ok := s.pending.Load(q); ok {
+		state := st.(*txState)
+		state.events = append(state.events, ev)
 		return
 	}
 	s.publish(ctx, ev)
+}
+
+// queueVoiceSync re-checks the voice participants of a place (only users, when given)
+// once the transaction commits: those who lost access are disconnected and the others get
+// their SFU permissions updated.
+func (s *Service) queueVoiceSync(ctx context.Context, q *store.Queries, placeID uuid.UUID, users ...uuid.UUID) {
+	st, ok := s.pending.Load(q)
+	if !ok {
+		s.syncVoice(ctx, placeID, users)
+		return
+	}
+	state := st.(*txState)
+	if state.voice == nil {
+		state.voice = map[uuid.UUID][]uuid.UUID{}
+	}
+	prev, seen := state.voice[placeID]
+	switch {
+	case seen && prev == nil:
+	case len(users) == 0:
+		state.voice[placeID] = nil
+	default:
+		state.voice[placeID] = append(prev, users...)
+	}
 }
 
 func (s *Service) publish(ctx context.Context, ev Event) {
@@ -95,17 +121,20 @@ func (s *Service) emitLeft(ctx context.Context, q *store.Queries, placeID, userI
 		Type: EventPlaceLeave, Data: map[string]any{"place_id": placeID}, Users: []uuid.UUID{userID},
 		Control: &realtime.Control{PlaceID: &placeID, Left: []uuid.UUID{userID}},
 	})
+	s.queueVoiceSync(ctx, q, placeID, userID)
 }
 
 // emitPermissionsChanged makes gateways re-check channel visibility for a whole place, or
-// only for users when given.
+// only for users when given, and re-checks the place's voice participants.
 func (s *Service) emitPermissionsChanged(ctx context.Context, q *store.Queries, placeID uuid.UUID, users ...uuid.UUID) {
 	ctl := &realtime.Control{PlaceID: &placeID, Invalidate: len(users) == 0, Refresh: users}
 	s.emit(ctx, q, Event{Control: ctl})
+	s.queueVoiceSync(ctx, q, placeID, users...)
 }
 
-// emitSessionsEnded disconnects gateway connections of ended sessions: the listed ones, or
-// all of the user's sessions except keep.
+// emitSessionsEnded disconnects gateway connections and voice of ended sessions: the
+// listed ones, or all of the user's sessions except keep.
 func (s *Service) emitSessionsEnded(ctx context.Context, q *store.Queries, userID uuid.UUID, sessions []uuid.UUID, keep *uuid.UUID) {
 	s.emit(ctx, q, Event{Control: &realtime.Control{CloseUser: &userID, CloseSessions: sessions, KeepSession: keep}})
+	s.afterCommit(ctx, q, func(ctx context.Context) { s.endVoiceForSessions(ctx, userID, sessions, keep) })
 }

@@ -1,14 +1,16 @@
 # gotalk-server
 
 The backend for [Gotalk](../../README.md): a forum-first, self-hostable alternative to Discord.
-This repository implements **Phase 1 (Foundation)**, **Phase 2 (Forum Core)** and
-**Phase 3 (Real-Time Layer)** of the [backend plan](../../docs/backend-plan.md): accounts,
-places, roles and permissions, invites and bans, the first-run setup wizard, boards, topics
-and posts, full-text search, notifications, moderation tools, chat channels and threads,
-direct and group messages, presence, and a WebSocket gateway, plus the infrastructure to
-run it anywhere from a Raspberry Pi to Kubernetes.
+This repository implements **Phase 1 (Foundation)**, **Phase 2 (Forum Core)**,
+**Phase 3 (Real-Time Layer)** and **Phase 4 (Voice)** of the
+[backend plan](../../docs/backend-plan.md): accounts, places, roles and permissions, invites
+and bans, the first-run setup wizard, boards, topics and posts, full-text search,
+notifications, moderation tools, chat channels and threads, direct and group messages,
+presence, a WebSocket gateway, and voice/video channels routed through a self-hosted
+[LiveKit](https://livekit.io) server, plus the infrastructure to run it anywhere from a
+Raspberry Pi to Kubernetes.
 
-- Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis optional
+- Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis and LiveKit optional
 - Browser setup wizard **or** fully headless setup from environment variables
 - Any client can point at any instance: discovery via `/.well-known/gotalk-instance`
   and `GET /api/v1/instance`
@@ -41,6 +43,23 @@ docker compose up -d
 
 Or run it once as a job (e.g. a Kubernetes `Job` or CI step) with `gotalk setup`. Both are
 idempotent: on an already configured instance they do nothing.
+
+### Voice channels
+
+Voice and video need a [LiveKit](https://livekit.io) server, which routes the media. The
+Compose file includes one behind the `voice` profile, already set up to send its webhooks to
+Gotalk:
+
+```sh
+GOTALK_VOICE_LIVEKIT_URL=ws://localhost:7880 docker compose --profile voice up -d
+```
+
+That works for clients on the same machine. For others, set `GOTALK_VOICE_LIVEKIT_URL` to an
+address they can reach (`wss://…` when served over TLS), `LIVEKIT_NODE_IP` to the host's
+public IP, open ports 7880/tcp, 7881/tcp and 7882/udp, and change `LIVEKIT_API_SECRET`. To use
+an existing or managed LiveKit deployment instead, set the `voice.*` settings below and point
+its webhook at `https://<your instance>/api/v1/voice/webhook`, signed with the same API key.
+Webhooks are optional: without them Gotalk polls LiveKit every 30 seconds.
 
 ## Running the binary
 
@@ -82,7 +101,8 @@ The same binary is built for unattended, horizontally scaled deployments:
   caused by requests served by another.
 - **Probes.** `GET /healthz` is liveness (process is serving). `GET /readyz` is readiness
   (database and Redis reachable); it reports `awaiting_setup` with HTTP 200 so the wizard
-  stays reachable through your load balancer. SIGTERM drains in-flight requests and closes
+  stays reachable through your load balancer, and `degraded` (still HTTP 200) when LiveKit is
+  configured but unreachable, since only voice is affected. SIGTERM drains in-flight requests and closes
   gateway connections with code `1001` so clients reconnect to another replica.
 - **Reverse proxies.** TLS is expected to terminate in front of Gotalk. Set
   `GOTALK_SERVER_TRUST_PROXY=true` so client IPs and the public URL are taken from
@@ -127,6 +147,12 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `setup.instance_description` | | Instance description for headless setup |
 | `setup.registration_mode` | `open` | `open`, `invite_only`, or `closed` |
 | `setup.admin_username` / `admin_email` / `admin_password` | | Set all three for headless setup |
+| `voice.livekit_url` | *(none)* | LiveKit URL clients connect to (`ws`, `wss`, `http` or `https`); setting it enables voice |
+| `voice.livekit_api_url` | `voice.livekit_url` | How this server reaches LiveKit's API, when that differs (e.g. `http://livekit:7880`) |
+| `voice.livekit_api_key` / `livekit_api_secret` | | LiveKit API credentials; the secret must be at least 32 characters |
+| `voice.token_ttl` | `10m` | How long a voice join token can be used to connect |
+| `voice.join_timeout` | `60s` | Joins that never connect to LiveKit are dropped after this |
+| `voice.session_retention` | `720h` | How long ended voice sessions and their call quality are kept |
 
 Rates use `<limit>-<period>` where period is `S`, `M`, `H`, or `D`.
 
@@ -254,6 +280,38 @@ share a place or a conversation with a user can read their presence via
 `GET /presences?user_ids=…`. `POST /channels/{id}/typing` shows the caller as typing for
 about 10 seconds.
 
+**Voice channels.** Places can have `voice` channels next to their text channels, optionally
+inside categories and with a `user_limit` (up to 99; `MOVE_MEMBERS` bypasses it). Media goes
+through LiveKit, not through Gotalk: `POST /channels/{id}/voice` checks `CONNECT_VOICE` and
+returns the LiveKit `url` plus a short-lived `token` for the channel's room, and the client
+connects with any LiveKit SDK, which handles WebRTC signaling and media. The token encodes
+what the caller may publish: the microphone needs `SPEAK`, and camera and screen sharing need
+`SHARE_SCREEN`. Timed-out members can listen but not speak or share. A user is in one voice
+channel at a time; joining another one moves them. Voice channel overwrites take the voice
+permissions (`VIEW_CHANNELS`, `MANAGE_CHANNELS`, `CONNECT_VOICE`, `SPEAK`, `SHARE_SCREEN`,
+`MUTE_MEMBERS`, `MOVE_MEMBERS`), and categories take chat and voice permissions alike.
+
+Permissions are enforced for the whole stay, not only at join time. When roles, overwrites,
+timeouts or membership change, Gotalk updates each participant's permissions in LiveKit
+(which stops tracks that are no longer allowed) or disconnects them if they lost access.
+Ending the session that joined (logout, revocation, …) also disconnects them.
+
+Clients report their own `self_mute`, `self_deaf`, `self_video` and `self_stream` state with
+`PATCH /users/@me/voice` and speaking indicators with the gateway op
+`{"op":"voice_speaking","d":{"speaking":true}}`; Gotalk relays both to everyone who can see
+the channel. Push-to-talk and voice activity detection are client-side. `GET
+/places/{place}/voice-states` lists who is in which channel. Moderators can server-mute or
+deafen members (`MUTE_MEMBERS`; the mute or deafen persists across the place's voice channels), move
+them between channels (`MOVE_MEMBERS` in both channels; the member receives a
+`VOICE_SERVER_UPDATE` with a token for the new room), or disconnect them (`MOVE_MEMBERS`). All of
+this is audited. Clients may send call quality samples (packet loss, jitter, round-trip time,
+bitrate) to `POST /users/@me/voice/telemetry`. `MANAGE_CHANNELS` sees each session's averages
+under `GET /channels/{id}/voice/sessions` for troubleshooting.
+
+Gotalk learns that a participant connected or left from LiveKit webhooks, and also checks
+every 30 seconds against LiveKit's room list, so missed webhooks heal themselves. Joins that
+never connect expire after `voice.join_timeout`.
+
 ### Real-time gateway
 
 Connect a WebSocket to `gateway_url` from `/api/v1/instance` (`/api/v1/gateway`). Every
@@ -261,10 +319,12 @@ frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type)
 
 1. The server sends `{"op":"hello","d":{"heartbeat_interval":30000}}`.
 2. Within 10 seconds, send `{"op":"identify","d":{"token":"<access token>","status":"online"}}`.
-   The server replies with a `READY` event containing `user`, `session_id` and `place_ids`.
+   The server replies with a `READY` event containing `user`, `session_id`, `place_ids` and
+   `voice_state` (null when not in a voice channel).
 3. Send `{"op":"heartbeat"}` every `heartbeat_interval` milliseconds; the server answers
    `{"op":"heartbeat_ack"}`. Change status with
-   `{"op":"presence_update","d":{"status":"idle"}}`.
+   `{"op":"presence_update","d":{"status":"idle"}}`, and relay speaking indicators while in
+   voice with `{"op":"voice_speaking","d":{"speaking":true}}`.
 4. Events arrive as `{"op":"dispatch","t":"MESSAGE_CREATE","d":{…}}`. Their payloads use the
    same JSON shapes as the REST API.
 
@@ -280,6 +340,9 @@ frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type)
 | `NOTIFICATION_CREATE` | The notified user (forum and chat notifications) |
 | `PRESENCE_UPDATE` | Members of the user's places and their conversation partners |
 | `PLACE_JOIN`, `PLACE_LEAVE`, `PLACE_DELETE` | The member (or every member, for deletion) |
+| `VOICE_STATE_UPDATE` | The user and everyone who can see the voice channel; `channel_id` is null when the user left it |
+| `VOICE_SERVER_UPDATE` | A member who was moved to another voice channel (new `url`, `token` and `room`) |
+| `VOICE_SPEAKING` | Everyone who can see the voice channel |
 
 Permission changes such as roles, overwrites, joins and kicks take effect immediately: a
 kicked member stops receiving the place's events. Ending a session (logout, revocation,
@@ -321,6 +384,7 @@ Sessions cannot be resumed; after reconnecting, clients refetch what they need w
 | Messages | `GET/POST /channels/{channelID}/messages`, `GET/PATCH/DELETE /messages/{messageID}`, `GET /messages/{messageID}/revisions`, `GET/PUT/DELETE /messages/{messageID}/reactions/{emoji}`, `GET /channels/{channelID}/pins`, `PUT/DELETE /channels/{channelID}/pins/{messageID}` |
 | Direct messages | `GET/POST /users/@me/channels`, `PUT/DELETE /channels/{channelID}/recipients/{userID}`, `GET /channels/{channelID}/receipts` |
 | Real time | `GET /presences?user_ids=…`, WebSocket `/gateway` |
+| Voice | `POST /channels/{channelID}/voice`, `GET /channels/{channelID}/voice/sessions`, `GET/PATCH/DELETE /users/@me/voice`, `POST /users/@me/voice/telemetry`, `GET /places/{place}/voice-states`, `GET/PATCH/DELETE /places/{place}/members/{userID}/voice`, `POST /voice/webhook` (LiveKit only) |
 
 **Errors** are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
 documents. **Rate limits** are reported on every response via `X-RateLimit-Limit`,
@@ -352,8 +416,9 @@ generated code is out of date.
 |---|---|
 | `cmd/gotalk` | CLI entry point: serve, migrate, setup, healthcheck |
 | `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway |
-| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`) |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`) |
 | `internal/realtime` | Gateway event routing (hub), Redis or in-memory event broker, and presence store |
+| `internal/livekit` | Minimal LiveKit client: participant tokens, RoomService calls, webhook verification |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |
 | `internal/permissions` | Permission bits, role hierarchy, and board and channel overwrite rules |

@@ -49,7 +49,7 @@ func (q *Queries) AddMemberRole(ctx context.Context, arg AddMemberRoleParams) er
 }
 
 const getMember = `-- name: GetMember :one
-SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, m.voice_muted, m.voice_deafened, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
 FROM place_members m
 JOIN users u ON u.id = m.user_id
 WHERE m.place_id = $1 AND m.user_id = $2
@@ -74,6 +74,8 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 		&i.PlaceMember.Nickname,
 		&i.PlaceMember.JoinedAt,
 		&i.PlaceMember.TimeoutUntil,
+		&i.PlaceMember.VoiceMuted,
+		&i.PlaceMember.VoiceDeafened,
 		&i.User.ID,
 		&i.User.Username,
 		&i.User.Email,
@@ -206,7 +208,7 @@ func (q *Queries) ListMemberRoleIDs(ctx context.Context, arg ListMemberRoleIDsPa
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT m.place_id, m.user_id, m.nickname, m.joined_at, m.timeout_until, m.voice_muted, m.voice_deafened, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
 FROM place_members m
 JOIN users u ON u.id = m.user_id
 WHERE m.place_id = $1
@@ -252,6 +254,8 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 			&i.PlaceMember.Nickname,
 			&i.PlaceMember.JoinedAt,
 			&i.PlaceMember.TimeoutUntil,
+			&i.PlaceMember.VoiceMuted,
+			&i.PlaceMember.VoiceDeafened,
 			&i.User.ID,
 			&i.User.Username,
 			&i.User.Email,
