@@ -30,6 +30,7 @@ type APIInfo struct {
 	BaseURL           string   `json:"base_url"`
 	OpenAPIURL        string   `json:"openapi_url"`
 	DocsURL           string   `json:"docs_url"`
+	GatewayURL        string   `json:"gateway_url" doc:"WebSocket URL of the real-time gateway"`
 }
 
 type Features struct {
@@ -92,10 +93,11 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 			BaseURL:           apiBase,
 			OpenAPIURL:        apiBase + "/openapi.json",
 			DocsURL:           apiBase + "/docs",
+			GatewayURL:        gatewayURL(base),
 		},
 		RegistrationMode: settings.RegistrationMode,
 		SetupRequired:    settings.SetupCompletedAt == nil,
-		Features:         Features{Forums: true, Search: "postgres"},
+		Features:         Features{Forums: true, Chat: true, Search: "postgres"},
 		RateLimits:       limits,
 		Stats:            Stats{Users: stats.Users, Places: stats.Places},
 	}, nil
@@ -232,7 +234,7 @@ func (s *Server) preflightChecks(ctx context.Context) []SetupCheck {
 
 	if s.Redis == nil {
 		checks = append(checks, SetupCheck{"redis", "skipped",
-			"not configured; rate limits are tracked per process (fine for a single server)"})
+			"not configured; rate limits, presence and real-time events stay within this process (fine for a single server)"})
 	} else if err := s.Redis.Ping(ctx).Err(); err != nil {
 		checks = append(checks, SetupCheck{"redis", "error", err.Error()})
 	} else {
@@ -296,6 +298,7 @@ func (s *Server) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 		"api_base_url":      base + APIPrefix,
 		"api_versions":      []string{APIVersion},
 		"instance_info_url": base + APIPrefix + "/instance",
+		"gateway_url":       gatewayURL(base),
 	})
 }
 

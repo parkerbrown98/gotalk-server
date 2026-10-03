@@ -195,6 +195,7 @@ func (s *Service) AssignRole(ctx context.Context, p *Principal, ref string, user
 		if err := q.AddMemberRole(ctx, store.AddMemberRoleParams{PlaceID: place.ID, UserID: userID, RoleID: role.ID}); err != nil {
 			return err
 		}
+		s.emitPermissionsChanged(ctx, q, place.ID, userID)
 		if err := s.audit(ctx, q, place.ID, p, "member.role_add", "user", &userID, "",
 			map[string]any{"role_id": role.ID, "role_name": role.Name}); err != nil {
 			return err
@@ -215,6 +216,7 @@ func (s *Service) UnassignRole(ctx context.Context, p *Principal, ref string, us
 		if _, err := q.RemoveMemberRole(ctx, store.RemoveMemberRoleParams{PlaceID: place.ID, UserID: userID, RoleID: role.ID}); err != nil {
 			return err
 		}
+		s.emitPermissionsChanged(ctx, q, place.ID, userID)
 		if err := s.audit(ctx, q, place.ID, p, "member.role_remove", "user", &userID, "",
 			map[string]any{"role_id": role.ID, "role_name": role.Name}); err != nil {
 			return err

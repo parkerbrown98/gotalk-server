@@ -76,6 +76,15 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteUserChannelReads = `-- name: DeleteUserChannelReads :exec
+DELETE FROM channel_reads WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserChannelReads(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserChannelReads, userID)
+	return err
+}
+
 const deleteUserDrafts = `-- name: DeleteUserDrafts :exec
 DELETE FROM drafts WHERE user_id = $1
 `
@@ -264,6 +273,15 @@ func (q *Queries) ListUsersByUsernames(ctx context.Context, usernames []string) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const removeUserMessageReactions = `-- name: RemoveUserMessageReactions :exec
+DELETE FROM message_reactions WHERE user_id = $1
+`
+
+func (q *Queries) RemoveUserMessageReactions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, removeUserMessageReactions, userID)
+	return err
 }
 
 const removeUserReactions = `-- name: RemoveUserReactions :exec

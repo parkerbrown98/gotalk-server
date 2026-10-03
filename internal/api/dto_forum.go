@@ -227,12 +227,14 @@ func toSearchResult(h service.SearchHit) SearchResult {
 
 type Notification struct {
 	ID        string         `json:"id" format:"uuid"`
-	Kind      string         `json:"kind" enum:"mention,reply,topic_reply,new_topic,reaction,solution,moderation"`
+	Kind      string         `json:"kind" enum:"mention,reply,topic_reply,new_topic,reaction,solution,moderation,direct_message"`
 	PlaceID   *string        `json:"place_id" format:"uuid"`
 	TopicID   *string        `json:"topic_id" format:"uuid"`
 	PostID    *string        `json:"post_id" format:"uuid"`
+	ChannelID *string        `json:"channel_id" format:"uuid" doc:"Set for chat mentions, replies and direct messages"`
+	MessageID *string        `json:"message_id" format:"uuid"`
 	Actor     *User          `json:"actor"`
-	Data      map[string]any `json:"data" doc:"Snapshot for rendering: place_name, place_slug, topic_title, excerpt, emoji, action, reason, ..."`
+	Data      map[string]any `json:"data" doc:"Snapshot for rendering: place_name, place_slug, topic_title, channel_name, excerpt, emoji, action, reason, ..."`
 	Read      bool           `json:"read"`
 	CreatedAt time.Time      `json:"created_at"`
 }
@@ -243,7 +245,7 @@ func toNotification(v service.NotificationView) Notification {
 	_ = json.Unmarshal(n.Data, &data)
 	return Notification{
 		ID: n.ID.String(), Kind: n.Kind, PlaceID: idString(n.PlaceID), TopicID: idString(n.TopicID),
-		PostID: idString(n.PostID), Actor: userPtr(v.Actor), Data: data, Read: n.ReadAt != nil, CreatedAt: n.CreatedAt,
+		PostID: idString(n.PostID), ChannelID: idString(n.ChannelID), MessageID: idString(n.MessageID), Actor: userPtr(v.Actor), Data: data, Read: n.ReadAt != nil, CreatedAt: n.CreatedAt,
 	}
 }
 
@@ -264,13 +266,15 @@ type Report struct {
 	ID              string     `json:"id" format:"uuid"`
 	PlaceID         string     `json:"place_id" format:"uuid"`
 	Reporter        *User      `json:"reporter"`
-	TargetType      string     `json:"target_type" enum:"post,user"`
+	TargetType      string     `json:"target_type" enum:"post,user,message"`
 	PostID          *string    `json:"post_id" format:"uuid"`
 	TopicID         *string    `json:"topic_id" format:"uuid"`
+	MessageID       *string    `json:"message_id" format:"uuid" doc:"null once the message is deleted; content_snapshot keeps it"`
+	ChannelID       *string    `json:"channel_id" format:"uuid"`
 	TargetUser      *User      `json:"target_user" doc:"The reported user, or the reported post's author"`
 	Reason          string     `json:"reason" enum:"spam,harassment,inappropriate,off_topic,other"`
 	Details         string     `json:"details"`
-	ContentSnapshot string     `json:"content_snapshot" doc:"The post as it was when reported"`
+	ContentSnapshot string     `json:"content_snapshot" doc:"The post or message as it was when reported"`
 	Status          string     `json:"status" enum:"open,resolved,dismissed"`
 	ResolvedBy      *string    `json:"resolved_by" format:"uuid"`
 	ResolvedAt      *time.Time `json:"resolved_at"`
@@ -282,7 +286,8 @@ func toReport(v service.ReportView) Report {
 	r := v.Report
 	return Report{
 		ID: r.ID.String(), PlaceID: r.PlaceID.String(), Reporter: userPtr(v.Reporter), TargetType: r.TargetType,
-		PostID: idString(r.PostID), TopicID: idString(v.TopicID), TargetUser: userPtr(v.TargetUser),
+		PostID: idString(r.PostID), TopicID: idString(v.TopicID), MessageID: idString(r.MessageID),
+		ChannelID: idString(r.ChannelID), TargetUser: userPtr(v.TargetUser),
 		Reason: r.Reason, Details: r.Details, ContentSnapshot: r.ContentSnapshot, Status: r.Status,
 		ResolvedBy: idString(r.ResolvedBy), ResolvedAt: r.ResolvedAt, ResolutionNote: r.ResolutionNote,
 		CreatedAt: r.CreatedAt,
@@ -293,7 +298,7 @@ func toReport(v service.ReportView) Report {
 func reportForReporter(r store.Report) Report {
 	return Report{
 		ID: r.ID.String(), PlaceID: r.PlaceID.String(), TargetType: r.TargetType, PostID: idString(r.PostID),
-		Reason: r.Reason, Details: r.Details, Status: r.Status, CreatedAt: r.CreatedAt,
+		MessageID: idString(r.MessageID), ChannelID: idString(r.ChannelID), Reason: r.Reason, Details: r.Details, Status: r.Status, CreatedAt: r.CreatedAt,
 	}
 }
 

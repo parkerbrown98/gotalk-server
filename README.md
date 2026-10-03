@@ -1,17 +1,19 @@
 # gotalk-server
 
 The backend for [Gotalk](../../README.md): a forum-first, self-hostable alternative to Discord.
-This repository implements **Phase 1 (Foundation)** and **Phase 2 (Forum Core)** of the
-[backend plan](../../docs/backend-plan.md): accounts, places, roles and permissions, invites
-and bans, the first-run setup wizard, boards, topics and posts, full-text search,
-notifications, and moderation tools, plus the infrastructure to run it anywhere from a
-Raspberry Pi to Kubernetes.
+This repository implements **Phase 1 (Foundation)**, **Phase 2 (Forum Core)** and
+**Phase 3 (Real-Time Layer)** of the [backend plan](../../docs/backend-plan.md): accounts,
+places, roles and permissions, invites and bans, the first-run setup wizard, boards, topics
+and posts, full-text search, notifications, moderation tools, chat channels and threads,
+direct and group messages, presence, and a WebSocket gateway, plus the infrastructure to
+run it anywhere from a Raspberry Pi to Kubernetes.
 
 - Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis optional
 - Browser setup wizard **or** fully headless setup from environment variables
 - Any client can point at any instance: discovery via `/.well-known/gotalk-instance`
   and `GET /api/v1/instance`
-- OpenAPI 3.1 spec and interactive docs served at `/api/v1/docs`
+- OpenAPI 3.1 spec and interactive docs served at `/api/v1/docs`; real-time events over a
+  WebSocket at `/api/v1/gateway`
 
 ## Quick start (Docker Compose)
 
@@ -75,14 +77,19 @@ The same binary is built for unattended, horizontally scaled deployments:
   `GOTALK_REDIS_URL` at any managed Redis. The Compose services are a local convenience.
 - **Multiple replicas.** Migrations take a PostgreSQL advisory lock so replicas can boot
   together, setup completion is race-safe, and the JWT secret is shared through the
-  database. Set `GOTALK_REDIS_URL` so rate limits are shared across replicas.
+  database. Set `GOTALK_REDIS_URL` so rate limits, presence and gateway events are shared
+  across replicas. Without Redis, a client connected to one replica would miss events
+  caused by requests served by another.
 - **Probes.** `GET /healthz` is liveness (process is serving). `GET /readyz` is readiness
   (database and Redis reachable); it reports `awaiting_setup` with HTTP 200 so the wizard
-  stays reachable through your load balancer. SIGTERM drains in-flight requests.
+  stays reachable through your load balancer. SIGTERM drains in-flight requests and closes
+  gateway connections with code `1001` so clients reconnect to another replica.
 - **Reverse proxies.** TLS is expected to terminate in front of Gotalk. Set
   `GOTALK_SERVER_TRUST_PROXY=true` so client IPs and the public URL are taken from
   `X-Forwarded-*` headers. Those headers are only honored when the request arrives from an
-  address in `GOTALK_SERVER_TRUSTED_PROXIES` (loopback and private ranges by default).
+  address in `GOTALK_SERVER_TRUSTED_PROXIES` (loopback and private ranges by default). The
+  proxy must pass WebSocket upgrades through for `/api/v1/gateway`, and its idle timeout
+  should exceed the gateway's 30 second heartbeat.
 
 ## Configuration
 
@@ -97,14 +104,14 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `server.public_url` | *(derived per request)* | External base URL, e.g. `https://forum.example.com` |
 | `server.trust_proxy` | `false` | Honor `X-Forwarded-*` from trusted proxies |
 | `server.trusted_proxies` | loopback + private ranges | CIDRs allowed to set forwarding headers |
-| `server.cors_allowed_origins` | `*` | Origins allowed to call the API (any client by default) |
+| `server.cors_allowed_origins` | `*` | Origins allowed to call the API and open gateway connections (any client by default) |
 | `server.cors_allow_credentials` | `false` | Allow credentialed CORS (cannot be combined with `*`) |
 | `server.shutdown_timeout` | `20s` | Graceful shutdown window |
 | `database.url` | local `gotalk` database | PostgreSQL URL or keyword/value DSN |
 | `database.max_conns` | `20` | Connection pool size |
 | `database.auto_migrate` | `true` | Apply migrations on `serve` |
 | `database.connect_timeout` | `30s` | How long to wait for PostgreSQL/Redis at startup |
-| `redis.url` | *(none)* | Optional; enables shared rate limits across replicas |
+| `redis.url` | *(none)* | Optional; shares rate limits, presence and gateway events across replicas |
 | `auth.jwt_secret` | *(generated, stored in DB)* | HMAC key for access tokens; at least 32 characters |
 | `auth.access_token_ttl` | `15m` | Access token lifetime |
 | `auth.refresh_token_ttl` | `720h` | Refresh token (session) lifetime |
@@ -112,6 +119,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `ratelimit.default` | `300-M` | Default tier, per user (or per IP when anonymous) |
 | `ratelimit.auth` | `10-M` | Login, registration, refresh, setup, and password endpoints |
 | `ratelimit.content` | `30-M` | Creating topics, replies, and reports |
+| `ratelimit.chat` | `120-M` | Sending chat messages, reacting to them, typing indicators, and starting threads |
 | `log.level` | `info` | `debug`, `info`, `warn`, `error` |
 | `log.format` | `json` | `json` or `text` |
 | `setup.token` | *(generated)* | Override the browser wizard's one-time token |
@@ -128,8 +136,8 @@ Everything lives under `/api/v1`. The full, always-current contract is the OpenA
 at `/api/v1/openapi.json` (browse it at `/api/v1/docs`).
 
 **Connecting a client.** Given only a domain, fetch `/.well-known/gotalk-instance` to find
-the API base URL, then `GET /api/v1/instance` for the instance name, registration mode,
-supported API versions, feature flags, and published rate limits.
+the API base URL and gateway URL, then `GET /api/v1/instance` for the instance name,
+registration mode, supported API versions, feature flags, and published rate limits.
 
 **Authentication.** `POST /auth/register` or `/auth/login` returns a short-lived JWT access
 token (send as `Authorization: Bearer …`) and a single-use refresh token. `POST /auth/refresh`
@@ -177,7 +185,8 @@ Places, boards and topics can be set to `watching`, `normal` or `muted`. Watchin
 or board notifies about new topics, and watching a topic notifies about every reply. Authors
 watch their own topics automatically. The most specific setting wins, so watching a topic
 inside a muted place still notifies. Notifications (`mention`, `reply`, `topic_reply`,
-`new_topic`, `reaction`, `solution`, `moderation`) carry a `data` snapshot for rendering.
+`new_topic`, `reaction`, `solution`, `moderation`, `direct_message`) carry a `data` snapshot
+for rendering and are pushed to the recipient's gateway sessions as they are created.
 Moderation notices ignore mutes.
 
 **Search.** `GET /search` searches everything signed-out visitors can read across the
@@ -189,10 +198,11 @@ matches in Markdown `**bold**`. Indexing uses PostgreSQL full-text search (langu
 `simple` configuration) and happens in the same transaction as each write, so results are
 never stale.
 
-**Moderation.** Members report posts or other members to `POST /places/{place}/reports`.
-Reports snapshot the post's content and land in a queue (`MANAGE_REPORTS`) to be resolved
-or dismissed. `MODERATE_MEMBERS` can warn members or time them out for up to 28 days. Timed-out
-members keep read access but lose posting, replying, reacting, nickname and invite rights.
+**Moderation.** Members report posts, chat messages, or other members to
+`POST /places/{place}/reports`. Reports snapshot the content and land in a queue
+(`MANAGE_REPORTS`) to be resolved or dismissed. `MODERATE_MEMBERS` can warn members or time
+them out for up to 28 days. Timed-out members keep read access but lose posting, replying,
+messaging, reacting, nickname and invite rights.
 Bans may be temporary (`duration` in seconds). Every moderation and administrative action,
 including role, board and place changes, is recorded in the audit log (`VIEW_AUDIT_LOG`).
 Filter the log by action (`member.ban`, or a whole category such as `member`), actor, or
@@ -201,6 +211,94 @@ user.
 
 **Drafts.** Clients can sync unfinished posts across devices as JSON objects under
 `/users/@me/drafts/{key}` (for example `topic:<boardID>` or `reply:<topicID>`).
+
+**Channels.** Alongside its forum, each place has chat channels: top-level `category`
+entries group `text` channels. Chat is members-only, even in public places. Categories and
+text channels can carry role overwrites for the chat permissions (`VIEW_CHANNELS`,
+`SEND_MESSAGES`, `MANAGE_MESSAGES`, `MANAGE_CHANNELS`, `ADD_REACTIONS`, `ATTACH_FILES`).
+They apply from the category down to the channel, using the same rules as board
+overwrites. `MANAGE_CHANNELS` creates, edits, reorders and deletes channels. Deleting a
+channel removes its messages and threads, and deleting a category moves its channels to the
+top level. A *thread* is a sub-channel of a text channel, optionally started from one of its
+messages, and inherits the channel's permissions. Threads can be archived by their creator
+or by `MANAGE_MESSAGES`, and a new message unarchives them.
+
+**Messages.** Message IDs are time-ordered UUIDv7s. `GET /channels/{id}/messages` returns
+history in chronological order: the latest page by default, or the page `before`, `after`
+or `around` a message ID. Messages are Markdown, up to 4,000 characters, and may set
+`reply_to_id`. They also accept a `nonce` that is echoed back so clients can reconcile
+optimistic sends. Authors can edit their own messages (previous versions are kept for the
+author and `MANAGE_MESSAGES`) and delete them. `MANAGE_MESSAGES` can delete anyone's message
+in place channels. The deletion is audited, and the author is told why. Deleted messages are
+removed outright; reports keep a snapshot. Messages support pins (up to 50 per channel) and
+emoji reactions. `@username` mentions and replies notify members who can see the channel,
+unless they muted the channel, its category, or the place.
+
+**Read state.** `PUT /channels/{id}/read` moves the caller's read position forward. Channel
+listings include `read_state` (`last_read_message_id`, `mention_count`) and `unread`. In
+direct messages every unread message counts toward `mention_count`; elsewhere only mentions
+and replies do. Reading a channel also marks the notifications it caused as read.
+
+**Direct messages.** `POST /users/@me/channels` with one recipient returns the caller's
+one-to-one conversation with them, creating it if needed. Several recipients start a group
+conversation (up to 10 people, with an owner and an optional name). You can only message
+people you share a place with; instance administrators are exempt. Group members can add
+people they share a place with. Anyone may leave, and the owner may remove others. When the
+owner leaves, the longest-standing member takes over. Participants see read receipts
+(`GET /channels/{id}/receipts`) and may pin messages. The first unread message of a
+conversation creates a `direct_message` notification; the read state counts the rest.
+
+**Presence and typing.** Gateway connections report `online`, `idle`, `dnd` or `invisible`.
+A user's presence is their most present connection (invisible counts as offline). People who
+share a place or a conversation with a user can read their presence via
+`GET /presences?user_ids=…`. `POST /channels/{id}/typing` shows the caller as typing for
+about 10 seconds.
+
+### Real-time gateway
+
+Connect a WebSocket to `gateway_url` from `/api/v1/instance` (`/api/v1/gateway`). Every
+frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type).
+
+1. The server sends `{"op":"hello","d":{"heartbeat_interval":30000}}`.
+2. Within 10 seconds, send `{"op":"identify","d":{"token":"<access token>","status":"online"}}`.
+   The server replies with a `READY` event containing `user`, `session_id` and `place_ids`.
+3. Send `{"op":"heartbeat"}` every `heartbeat_interval` milliseconds; the server answers
+   `{"op":"heartbeat_ack"}`. Change status with
+   `{"op":"presence_update","d":{"status":"idle"}}`.
+4. Events arrive as `{"op":"dispatch","t":"MESSAGE_CREATE","d":{…}}`. Their payloads use the
+   same JSON shapes as the REST API.
+
+| Event | Sent to |
+|---|---|
+| `READY` | The connecting session |
+| `MESSAGE_CREATE`, `MESSAGE_UPDATE` (edits, pins, new threads), `MESSAGE_DELETE` | Everyone who can see the channel |
+| `MESSAGE_REACTION_ADD`, `MESSAGE_REACTION_REMOVE`, `TYPING_START` | Everyone who can see the channel |
+| `CHANNEL_CREATE`, `CHANNEL_UPDATE`, `CHANNEL_DELETE` | Everyone who can see the channel (conversation participants for DMs) |
+| `CHANNEL_RECIPIENT_ADD`, `CHANNEL_RECIPIENT_REMOVE` | Group conversation participants |
+| `CHANNEL_READ` | The reader's other sessions |
+| `READ_RECEIPT` | The other participants of a direct conversation |
+| `NOTIFICATION_CREATE` | The notified user (forum and chat notifications) |
+| `PRESENCE_UPDATE` | Members of the user's places and their conversation partners |
+| `PLACE_JOIN`, `PLACE_LEAVE`, `PLACE_DELETE` | The member (or every member, for deletion) |
+
+Permission changes such as roles, overwrites, joins and kicks take effect immediately: a
+kicked member stops receiving the place's events. Ending a session (logout, revocation,
+password change, account deletion, or refresh-token reuse) closes its gateway connection.
+Sessions cannot be resumed; after reconnecting, clients refetch what they need with
+`after=<last message ID>`.
+
+| Close code | Meaning |
+|---|---|
+| `1001` | Server shutting down; reconnect |
+| `4000` | Internal error |
+| `4001` | Invalid frame, unknown op, or invalid status |
+| `4002` | Sent something before `identify` |
+| `4003` | Sent `identify` twice |
+| `4004` | Authentication failed |
+| `4007` | Events may have been missed (e.g. the server lost its Redis connection); reconnect |
+| `4008` | Too many frames (over 120 per minute) or too slow to read events |
+| `4009` | Missed heartbeats |
+| `4010` | Session ended |
 
 | Area | Endpoints |
 |---|---|
@@ -219,6 +317,10 @@ user.
 | Notifications | `GET /users/@me/notifications`, `GET …/notifications/unread-count`, `POST …/notifications/read-all`, `POST …/notifications/{id}/read`, `DELETE …/notifications/{id}`, `PUT /places/{place}/subscription` |
 | Drafts | `GET /users/@me/drafts`, `GET/PUT/DELETE /users/@me/drafts/{key}` |
 | Moderation | `GET/POST /places/{place}/reports`, `PATCH /places/{place}/reports/{reportID}`, `GET /places/{place}/audit-log`, `PUT/DELETE /places/{place}/members/{userID}/timeout`, `POST /places/{place}/members/{userID}/warnings` |
+| Channels | `GET/POST /places/{place}/channels`, `GET/PATCH/DELETE /channels/{channelID}`, `GET /channels/{channelID}/overwrites`, `PUT/DELETE /channels/{channelID}/overwrites/{roleID}`, `GET/POST /channels/{channelID}/threads`, `PUT /channels/{channelID}/subscription`, `PUT /channels/{channelID}/read`, `POST /channels/{channelID}/typing` |
+| Messages | `GET/POST /channels/{channelID}/messages`, `GET/PATCH/DELETE /messages/{messageID}`, `GET /messages/{messageID}/revisions`, `GET/PUT/DELETE /messages/{messageID}/reactions/{emoji}`, `GET /channels/{channelID}/pins`, `PUT/DELETE /channels/{channelID}/pins/{messageID}` |
+| Direct messages | `GET/POST /users/@me/channels`, `PUT/DELETE /channels/{channelID}/recipients/{userID}`, `GET /channels/{channelID}/receipts` |
+| Real time | `GET /presences?user_ids=…`, WebSocket `/gateway` |
 
 **Errors** are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
 documents. **Rate limits** are reported on every response via `X-RateLimit-Limit`,
@@ -249,11 +351,12 @@ generated code is out of date.
 | Path | Contents |
 |---|---|
 | `cmd/gotalk` | CLI entry point: serve, migrate, setup, healthcheck |
-| `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs |
-| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`) |
+| `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`) |
+| `internal/realtime` | Gateway event routing (hub), Redis or in-memory event broker, and presence store |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |
-| `internal/permissions` | Permission bits, role hierarchy, and board overwrite rules |
+| `internal/permissions` | Permission bits, role hierarchy, and board and channel overwrite rules |
 | `internal/auth` | Argon2id passwords, JWT access tokens, refresh tokens |
 | `internal/config` | Layered configuration and validation |
 | `internal/ratelimit` | Rate limit tiers backed by Redis or memory |

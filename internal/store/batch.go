@@ -17,10 +17,11 @@ var (
 	ErrBatchAlreadyClosed = errors.New("batch already closed")
 )
 
-const createNotification = `-- name: CreateNotification :batchexec
-INSERT INTO notifications (id, user_id, kind, place_id, topic_id, post_id, actor_id, data)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+const createNotification = `-- name: CreateNotification :batchone
+INSERT INTO notifications (id, user_id, kind, place_id, topic_id, post_id, channel_id, message_id, actor_id, data)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT DO NOTHING
+RETURNING id, user_id, kind, place_id, topic_id, post_id, actor_id, data, read_at, created_at, channel_id, message_id
 `
 
 type CreateNotificationBatchResults struct {
@@ -30,17 +31,20 @@ type CreateNotificationBatchResults struct {
 }
 
 type CreateNotificationParams struct {
-	ID      uuid.UUID
-	UserID  uuid.UUID
-	Kind    string
-	PlaceID *uuid.UUID
-	TopicID *uuid.UUID
-	PostID  *uuid.UUID
-	ActorID *uuid.UUID
-	Data    []byte
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Kind      string
+	PlaceID   *uuid.UUID
+	TopicID   *uuid.UUID
+	PostID    *uuid.UUID
+	ChannelID *uuid.UUID
+	MessageID *uuid.UUID
+	ActorID   *uuid.UUID
+	Data      []byte
 }
 
-// Duplicate reaction notifications are silently skipped.
+// Duplicate reaction and direct-message notifications are silently skipped (no row is
+// returned).
 func (q *Queries) CreateNotification(ctx context.Context, arg []CreateNotificationParams) *CreateNotificationBatchResults {
 	batch := &pgx.Batch{}
 	for _, a := range arg {
@@ -51,6 +55,8 @@ func (q *Queries) CreateNotification(ctx context.Context, arg []CreateNotificati
 			a.PlaceID,
 			a.TopicID,
 			a.PostID,
+			a.ChannelID,
+			a.MessageID,
 			a.ActorID,
 			a.Data,
 		}
@@ -60,18 +66,33 @@ func (q *Queries) CreateNotification(ctx context.Context, arg []CreateNotificati
 	return &CreateNotificationBatchResults{br, len(arg), false}
 }
 
-func (b *CreateNotificationBatchResults) Exec(f func(int, error)) {
+func (b *CreateNotificationBatchResults) QueryRow(f func(int, Notification, error)) {
 	defer b.br.Close()
 	for t := 0; t < b.tot; t++ {
+		var i Notification
 		if b.closed {
 			if f != nil {
-				f(t, ErrBatchAlreadyClosed)
+				f(t, i, ErrBatchAlreadyClosed)
 			}
 			continue
 		}
-		_, err := b.br.Exec()
+		row := b.br.QueryRow()
+		err := row.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Kind,
+			&i.PlaceID,
+			&i.TopicID,
+			&i.PostID,
+			&i.ActorID,
+			&i.Data,
+			&i.ReadAt,
+			&i.CreatedAt,
+			&i.ChannelID,
+			&i.MessageID,
+		)
 		if f != nil {
-			f(t, err)
+			f(t, i, err)
 		}
 	}
 }

@@ -1,8 +1,16 @@
--- name: CreateNotification :batchexec
--- Duplicate reaction notifications are silently skipped.
-INSERT INTO notifications (id, user_id, kind, place_id, topic_id, post_id, actor_id, data)
-VALUES (@id, @user_id, @kind, @place_id, @topic_id, @post_id, @actor_id, @data)
-ON CONFLICT DO NOTHING;
+-- name: CreateNotification :batchone
+-- Duplicate reaction and direct-message notifications are silently skipped (no row is
+-- returned).
+INSERT INTO notifications (id, user_id, kind, place_id, topic_id, post_id, channel_id, message_id, actor_id, data)
+VALUES (@id, @user_id, @kind, @place_id, @topic_id, @post_id, @channel_id, @message_id, @actor_id, @data)
+ON CONFLICT DO NOTHING
+RETURNING *;
+
+-- name: MarkChannelNotificationsRead :exec
+-- Reading a channel up to a message also reads the notifications it caused.
+UPDATE notifications SET read_at = now()
+WHERE user_id = @user_id AND channel_id = @channel_id AND read_at IS NULL
+  AND (message_id IS NULL OR message_id <= @message_id);
 
 -- name: ListNotifications :many
 SELECT * FROM notifications

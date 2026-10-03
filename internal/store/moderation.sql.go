@@ -42,9 +42,11 @@ func (q *Queries) CreateAuditEntry(ctx context.Context, arg CreateAuditEntryPara
 }
 
 const createReport = `-- name: CreateReport :one
-INSERT INTO reports (id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at
+INSERT INTO reports (id, place_id, reporter_id, target_type, post_id, message_id, channel_id, target_user_id,
+                     reason, details, content_snapshot)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11)
+RETURNING id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at, message_id, channel_id
 `
 
 type CreateReportParams struct {
@@ -53,6 +55,8 @@ type CreateReportParams struct {
 	ReporterID      *uuid.UUID
 	TargetType      string
 	PostID          *uuid.UUID
+	MessageID       *uuid.UUID
+	ChannelID       *uuid.UUID
 	TargetUserID    *uuid.UUID
 	Reason          string
 	Details         string
@@ -66,6 +70,8 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Rep
 		arg.ReporterID,
 		arg.TargetType,
 		arg.PostID,
+		arg.MessageID,
+		arg.ChannelID,
 		arg.TargetUserID,
 		arg.Reason,
 		arg.Details,
@@ -87,12 +93,14 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Rep
 		&i.ResolvedAt,
 		&i.ResolutionNote,
 		&i.CreatedAt,
+		&i.MessageID,
+		&i.ChannelID,
 	)
 	return i, err
 }
 
 const getReport = `-- name: GetReport :one
-SELECT id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at FROM reports WHERE id = $1 AND place_id = $2
+SELECT id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at, message_id, channel_id FROM reports WHERE id = $1 AND place_id = $2
 `
 
 type GetReportParams struct {
@@ -118,6 +126,8 @@ func (q *Queries) GetReport(ctx context.Context, arg GetReportParams) (Report, e
 		&i.ResolvedAt,
 		&i.ResolutionNote,
 		&i.CreatedAt,
+		&i.MessageID,
+		&i.ChannelID,
 	)
 	return i, err
 }
@@ -180,7 +190,7 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]A
 }
 
 const listReports = `-- name: ListReports :many
-SELECT id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at FROM reports
+SELECT id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at, message_id, channel_id FROM reports
 WHERE place_id = $1 AND ($2::text IS NULL OR status = $2::text)
 ORDER BY id DESC
 LIMIT $4 OFFSET $3
@@ -222,6 +232,8 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Rep
 			&i.ResolvedAt,
 			&i.ResolutionNote,
 			&i.CreatedAt,
+			&i.MessageID,
+			&i.ChannelID,
 		); err != nil {
 			return nil, err
 		}
@@ -237,7 +249,7 @@ const resolveReport = `-- name: ResolveReport :one
 UPDATE reports
 SET status = $1, resolved_by = $2, resolved_at = now(), resolution_note = $3
 WHERE id = $4 AND place_id = $5
-RETURNING id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at
+RETURNING id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot, status, resolved_by, resolved_at, resolution_note, created_at, message_id, channel_id
 `
 
 type ResolveReportParams struct {
@@ -272,6 +284,8 @@ func (q *Queries) ResolveReport(ctx context.Context, arg ResolveReportParams) (R
 		&i.ResolvedAt,
 		&i.ResolutionNote,
 		&i.CreatedAt,
+		&i.MessageID,
+		&i.ChannelID,
 	)
 	return i, err
 }

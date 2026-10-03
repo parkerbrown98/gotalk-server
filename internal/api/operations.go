@@ -16,6 +16,7 @@ var (
 	optionalAuth     = []map[string][]string{{"bearer": {}}, {}}
 	authRateLimit    = map[string]any{rateLimitTierKey: ratelimit.TierAuth}
 	contentRateLimit = map[string]any{rateLimitTierKey: ratelimit.TierContent}
+	chatRateLimit    = map[string]any{rateLimitTierKey: ratelimit.TierChat}
 )
 
 func operation(id, method, path, summary string, tag string) huma.Operation {

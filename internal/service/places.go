@@ -12,6 +12,7 @@ import (
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
 	"github.com/parkerbrown98/gotalk-server/internal/database"
 	"github.com/parkerbrown98/gotalk-server/internal/permissions"
+	"github.com/parkerbrown98/gotalk-server/internal/realtime"
 	"github.com/parkerbrown98/gotalk-server/internal/store"
 )
 
@@ -322,7 +323,12 @@ func (s *Service) DeletePlace(ctx context.Context, p *Principal, ref string) err
 	if !acc.Member.IsOwner && !p.User.IsInstanceAdmin {
 		return apperr.Forbidden("only the owner can delete a place")
 	}
-	return s.q.SoftDeletePlace(ctx, place.ID)
+	if err := s.q.SoftDeletePlace(ctx, place.ID); err != nil {
+		return err
+	}
+	s.emit(ctx, s.q, Event{Type: EventPlaceDelete, Data: map[string]any{"place_id": place.ID}, Places: []uuid.UUID{place.ID}})
+	s.emit(ctx, s.q, Event{Control: &realtime.Control{PlaceID: &place.ID, Removed: true}})
+	return nil
 }
 
 func (s *Service) TransferOwnership(ctx context.Context, p *Principal, ref string, newOwner uuid.UUID) (PlaceView, error) {
@@ -354,6 +360,7 @@ func (s *Service) TransferOwnership(ctx context.Context, p *Principal, ref strin
 		if err := s.audit(ctx, q, place.ID, p, "place.transfer", "user", &newOwner, "", nil); err != nil {
 			return err
 		}
+		s.emitPermissionsChanged(ctx, q, place.ID, p.User.ID, newOwner)
 		place.OwnerID = newOwner
 		standing, err := s.memberStanding(ctx, q, place, p.User.ID)
 		if err != nil {
@@ -370,6 +377,7 @@ func (s *Service) addMember(ctx context.Context, q *store.Queries, placeID, user
 	if err != nil || n == 0 {
 		return err
 	}
+	s.emitJoined(ctx, q, placeID, userID)
 	return q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: 1})
 }
 
@@ -378,6 +386,7 @@ func (s *Service) removeMember(ctx context.Context, q *store.Queries, placeID, u
 	if err != nil || n == 0 {
 		return false, err
 	}
+	s.emitLeft(ctx, q, placeID, userID)
 	return true, q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: -1})
 }
 

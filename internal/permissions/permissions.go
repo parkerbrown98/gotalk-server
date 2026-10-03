@@ -99,6 +99,9 @@ const Default = CreateInvites | ChangeNickname |
 // Forum is the set of permissions that board overwrites may allow or deny.
 const Forum = ViewBoards | CreateTopics | ReplyToTopics | AddReactions | AttachFiles | ManageBoards | ManagePosts
 
+// Chat is the set of permissions that channel overwrites may allow or deny.
+const Chat = ViewChannels | SendMessages | ManageMessages | ManageChannels | AddReactions | AttachFiles
+
 // Guest is the most a non-member may hold: read access to public places.
 const Guest = ViewBoards
 

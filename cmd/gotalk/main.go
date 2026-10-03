@@ -194,9 +194,13 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 
-	handler := api.New(api.Deps{
+	handler, err := api.New(api.Deps{
 		Service: svc, Limiter: limiter, Redis: rdb, Config: cfg, Logger: log, Version: version,
 	})
+	if err != nil {
+		return err
+	}
+	defer handler.Close()
 	srv := &http.Server{
 		Addr:              cfg.Server.Addr,
 		Handler:           handler,
@@ -206,6 +210,9 @@ func serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		IdleTimeout:       120 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
+	// WebSocket connections are hijacked, so Shutdown does not drain them; close them
+	// (code 1001, "going away") so clients reconnect to another replica.
+	srv.RegisterOnShutdown(handler.Close)
 
 	ln, err := net.Listen("tcp", cfg.Server.Addr)
 	if err != nil {

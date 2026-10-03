@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
 	"github.com/parkerbrown98/gotalk-server/internal/permissions"
@@ -23,6 +25,8 @@ const (
 	NotifyReaction   = "reaction"
 	NotifySolution   = "solution"
 	NotifyModeration = "moderation"
+	// NotifyDirectMessage is kept to one unread notification per conversation.
+	NotifyDirectMessage = "direct_message"
 )
 
 const (
@@ -175,10 +179,17 @@ func (s *Service) deliver(ctx context.Context, q *store.Queries, ev forumEvent, 
 	if ev.post != nil {
 		postID = &ev.post.ID
 	}
-	return s.insertNotifications(ctx, q, out, &f.place.ID, &ev.topic.ID, postID, ev.actorID, data)
+	return s.insertNotifications(ctx, q, out, notifTarget{placeID: &f.place.ID, topicID: &ev.topic.ID, postID: postID}, ev.actorID, data)
 }
 
-func (s *Service) insertNotifications(ctx context.Context, q *store.Queries, rs []recipient, placeID, topicID, postID *uuid.UUID, actorID uuid.UUID, data map[string]any) error {
+// notifTarget is what a notification points at.
+type notifTarget struct {
+	placeID, topicID, postID, channelID, messageID *uuid.UUID
+}
+
+// insertNotifications stores notifications and pushes each new one to its recipient's
+// gateway sessions. Duplicates suppressed by the database are skipped.
+func (s *Service) insertNotifications(ctx context.Context, q *store.Queries, rs []recipient, t notifTarget, actorID uuid.UUID, data map[string]any) error {
 	if len(rs) == 0 {
 		return nil
 	}
@@ -197,17 +208,37 @@ func (s *Service) insertNotifications(ctx context.Context, q *store.Queries, rs 
 			return err
 		}
 		params[i] = store.CreateNotificationParams{
-			ID: id, UserID: r.userID, Kind: r.kind, PlaceID: placeID, TopicID: topicID,
-			PostID: postID, ActorID: actor, Data: raw,
+			ID: id, UserID: r.userID, Kind: r.kind, PlaceID: t.placeID, TopicID: t.topicID,
+			PostID: t.postID, ChannelID: t.channelID, MessageID: t.messageID, ActorID: actor, Data: raw,
 		}
 	}
-	var batchErr error
-	q.CreateNotification(ctx, params).Exec(func(_ int, err error) {
-		if err != nil && batchErr == nil {
+	var (
+		batchErr error
+		inserted []store.Notification
+	)
+	q.CreateNotification(ctx, params).QueryRow(func(_ int, n store.Notification, err error) {
+		switch {
+		case err == nil:
+			inserted = append(inserted, n)
+		case errors.Is(err, pgx.ErrNoRows):
+		case batchErr == nil:
 			batchErr = err
 		}
 	})
-	return batchErr
+	if batchErr != nil || len(inserted) == 0 {
+		return batchErr
+	}
+	var actorUser *store.User
+	if actor != nil {
+		if u, err := q.GetUserByID(ctx, actorID); err == nil {
+			actorUser = &u
+		}
+	}
+	for _, n := range inserted {
+		s.emit(ctx, q, Event{Type: EventNotificationCreate, Data: NotificationView{Notification: n, Actor: actorUser},
+			Users: []uuid.UUID{n.UserID}})
+	}
+	return nil
 }
 
 // notifyModeration tells a user about a moderation action taken against them. These
@@ -217,15 +248,15 @@ func (s *Service) notifyModeration(ctx context.Context, q *store.Queries, place 
 	for k, v := range extra {
 		data[k] = v
 	}
-	var topicID, postID *uuid.UUID
-	if v, ok := extra["topic_id"].(uuid.UUID); ok {
-		topicID = &v
+	t := notifTarget{placeID: &place.ID}
+	for key, dst := range map[string]**uuid.UUID{
+		"topic_id": &t.topicID, "post_id": &t.postID, "channel_id": &t.channelID,
+	} {
+		if v, ok := extra[key].(uuid.UUID); ok {
+			*dst = &v
+		}
 	}
-	if v, ok := extra["post_id"].(uuid.UUID); ok {
-		postID = &v
-	}
-	return s.insertNotifications(ctx, q, []recipient{{userID: userID, kind: NotifyModeration}},
-		&place.ID, topicID, postID, actor.User.ID, data)
+	return s.insertNotifications(ctx, q, []recipient{{userID: userID, kind: NotifyModeration}}, t, actor.User.ID, data)
 }
 
 var (
@@ -378,7 +409,7 @@ func validateSubscriptionLevel(level string) error {
 	return apperr.Invalid("level must be one of watching, normal, muted")
 }
 
-func (s *Service) setSubscription(ctx context.Context, q *store.Queries, p *Principal, placeID uuid.UUID, targetType string, targetID uuid.UUID, level string) error {
+func (s *Service) setSubscription(ctx context.Context, q *store.Queries, p *Principal, placeID *uuid.UUID, targetType string, targetID uuid.UUID, level string) error {
 	if level == "normal" {
 		return q.DeleteSubscription(ctx, store.DeleteSubscriptionParams{UserID: p.User.ID, TargetType: targetType, TargetID: targetID})
 	}
@@ -398,7 +429,7 @@ func (s *Service) SetPlaceSubscription(ctx context.Context, p *Principal, ref, l
 	if err != nil {
 		return err
 	}
-	return s.setSubscription(ctx, s.q, p, place.ID, "place", place.ID, level)
+	return s.setSubscription(ctx, s.q, p, &place.ID, "place", place.ID, level)
 }
 
 // SetBoardSubscription: watching notifies about new topics in the board and its children.
@@ -413,7 +444,7 @@ func (s *Service) SetBoardSubscription(ctx context.Context, p *Principal, boardI
 	if !f.acc.IsMember {
 		return apperr.Forbidden("you are not a member of this place")
 	}
-	return s.setSubscription(ctx, s.q, p, f.place.ID, "board", b.ID, level)
+	return s.setSubscription(ctx, s.q, p, &f.place.ID, "board", b.ID, level)
 }
 
 // SetTopicSubscription: watching notifies about every reply.
@@ -428,5 +459,5 @@ func (s *Service) SetTopicSubscription(ctx context.Context, p *Principal, topicI
 	if !f.acc.IsMember {
 		return apperr.Forbidden("you are not a member of this place")
 	}
-	return s.setSubscription(ctx, s.q, p, f.place.ID, "topic", topic.ID, level)
+	return s.setSubscription(ctx, s.q, p, &f.place.ID, "topic", topic.ID, level)
 }

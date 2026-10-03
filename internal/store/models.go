@@ -50,6 +50,48 @@ type BoardOverwrite struct {
 	Deny    int64
 }
 
+type Channel struct {
+	ID              uuid.UUID
+	PlaceID         *uuid.UUID
+	ParentID        *uuid.UUID
+	Kind            string
+	Name            string
+	Topic           string
+	Position        int32
+	IsNsfw          bool
+	OwnerID         *uuid.UUID
+	ThreadMessageID *uuid.UUID
+	IsArchived      bool
+	DmKey           *string
+	LastMessageID   *uuid.UUID
+	LastMessageAt   *time.Time
+	MessageCount    int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type ChannelOverwrite struct {
+	ChannelID uuid.UUID
+	RoleID    uuid.UUID
+	PlaceID   uuid.UUID
+	Allow     int64
+	Deny      int64
+}
+
+type ChannelRead struct {
+	UserID            uuid.UUID
+	ChannelID         uuid.UUID
+	LastReadMessageID *uuid.UUID
+	MentionCount      int32
+	UpdatedAt         time.Time
+}
+
+type ChannelRecipient struct {
+	ChannelID uuid.UUID
+	UserID    uuid.UUID
+	JoinedAt  time.Time
+}
+
 type Draft struct {
 	UserID    uuid.UUID
 	Key       string
@@ -87,6 +129,37 @@ type MemberRole struct {
 	RoleID  uuid.UUID
 }
 
+type Message struct {
+	ID         uuid.UUID
+	ChannelID  uuid.UUID
+	PlaceID    *uuid.UUID
+	AuthorID   *uuid.UUID
+	Content    string
+	ReplyToID  *uuid.UUID
+	MentionIds []uuid.UUID
+	IsPinned   bool
+	PinnedAt   *time.Time
+	PinnedBy   *uuid.UUID
+	EditCount  int32
+	EditedAt   *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type MessageReaction struct {
+	MessageID uuid.UUID
+	UserID    uuid.UUID
+	Emoji     string
+	CreatedAt time.Time
+}
+
+type MessageRevision struct {
+	ID        uuid.UUID
+	MessageID uuid.UUID
+	Content   string
+	CreatedAt time.Time
+}
+
 type Notification struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
@@ -98,6 +171,8 @@ type Notification struct {
 	Data      []byte
 	ReadAt    *time.Time
 	CreatedAt time.Time
+	ChannelID *uuid.UUID
+	MessageID *uuid.UUID
 }
 
 type Place struct {
@@ -182,6 +257,8 @@ type Report struct {
 	ResolvedAt      *time.Time
 	ResolutionNote  string
 	CreatedAt       time.Time
+	MessageID       *uuid.UUID
+	ChannelID       *uuid.UUID
 }
 
 type Role struct {
@@ -218,7 +295,7 @@ type Subscription struct {
 	UserID     uuid.UUID
 	TargetType string
 	TargetID   uuid.UUID
-	PlaceID    uuid.UUID
+	PlaceID    *uuid.UUID
 	Level      string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time

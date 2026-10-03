@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
@@ -30,6 +31,10 @@ type Service struct {
 	log       *slog.Logger
 	tokens    *auth.TokenIssuer
 	setupDone atomic.Bool
+	events    atomic.Pointer[Publisher]
+	// pending buffers events emitted inside a transaction, keyed by its *store.Queries,
+	// until the transaction commits.
+	pending sync.Map
 }
 
 // New prepares the service, creating the instance settings row (with a generated JWT
@@ -71,9 +76,20 @@ func (s *Service) Pool() *pgxpool.Pool { return s.pool }
 func (s *Service) Config() *config.Config { return s.cfg }
 
 func (s *Service) tx(ctx context.Context, fn func(q *store.Queries) error) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		return fn(s.q.WithTx(tx))
+	var events []Event
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		s.pending.Store(q, &events)
+		defer s.pending.Delete(q)
+		return fn(q)
 	})
+	if err != nil {
+		return err
+	}
+	for _, ev := range events {
+		s.publish(ctx, ev)
+	}
+	return nil
 }
 
 func notFound(err error, format string, args ...any) error {

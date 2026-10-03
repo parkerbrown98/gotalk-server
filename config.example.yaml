@@ -20,7 +20,7 @@ database:
   connect_timeout: 30s
 
 redis:
-  url: ""                      # optional; required for shared rate limits across replicas
+  url: ""                      # optional; shares rate limits, presence and gateway events across replicas
 
 auth:
   jwt_secret: ""               # optional; generated and stored in the database when empty
@@ -32,6 +32,7 @@ ratelimit:
   default: 300-M               # <limit>-<S|M|H|D>
   auth: 10-M                   # login, register, refresh, setup, password changes
   content: 30-M                # creating topics, replies and reports
+  chat: 120-M                  # sending chat messages, reactions, typing, starting threads
 
 log:
   level: info                  # debug, info, warn, error

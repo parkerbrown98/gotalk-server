@@ -3,6 +3,8 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/parkerbrown98/gotalk-server/internal/config"
 	"github.com/parkerbrown98/gotalk-server/internal/ratelimit"
+	"github.com/parkerbrown98/gotalk-server/internal/realtime"
 	"github.com/parkerbrown98/gotalk-server/internal/service"
 )
 
@@ -28,22 +31,38 @@ const (
 type Deps struct {
 	Service *service.Service
 	Limiter *ratelimit.Limiter
-	// Redis is optional and only used for readiness checks here.
+	// Redis is optional. When set, gateway events and presence are shared through it so
+	// every replica can serve every client.
 	Redis   *redis.Client
 	Config  *config.Config
 	Logger  *slog.Logger
 	Version string
+	// HeartbeatInterval overrides the gateway heartbeat (30s by default).
+	HeartbeatInterval time.Duration
 }
 
+// Server is the HTTP handler for an instance. Close it to disconnect gateway clients.
 type Server struct {
 	Deps
 	api     huma.API
 	proxies []netip.Prefix
+	hub     *realtime.Hub
+	handler http.Handler
 }
 
-// New builds the full HTTP handler.
-func New(d Deps) http.Handler {
+// New builds the full HTTP handler and starts the real-time gateway.
+func New(d Deps) (*Server, error) {
 	s := &Server{Deps: d, proxies: d.Config.Server.TrustedProxyPrefixes()}
+
+	broker, presence := realtime.NewMemoryBroker(), realtime.NewMemoryPresence()
+	if d.Redis != nil {
+		broker, presence = realtime.NewRedisBroker(d.Redis), realtime.NewRedisPresence(d.Redis)
+	}
+	s.hub = realtime.NewHub(broker, presence, d.Service, d.Logger)
+	if err := s.hub.Start(context.Background()); err != nil {
+		return nil, fmt.Errorf("starting the real-time gateway: %w", err)
+	}
+	d.Service.SetPublisher(gatewayPublisher{hub: s.hub, log: d.Logger})
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -68,6 +87,8 @@ func New(d Deps) http.Handler {
 	r.Get("/setup", s.handleSetupPage)
 
 	r.Route(APIPrefix, func(r chi.Router) {
+		r.Get(gatewayPathSuffix, s.handleGateway)
+
 		cfg := huma.DefaultConfig("Gotalk API", d.Version)
 		cfg.Info.Description = "REST API for a Gotalk instance. Any client may target any instance; " +
 			"start with GET /instance to discover capabilities."
@@ -94,9 +115,22 @@ func New(d Deps) http.Handler {
 		s.registerNotifications()
 		s.registerDrafts()
 		s.registerModeration()
+		s.registerChannels()
+		s.registerMessages()
+		s.registerDirectMessages()
 	})
 
-	return r
+	s.handler = r
+	return s, nil
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
+
+// Close disconnects every gateway client (close code 1001) and stops routing events. It
+// is safe to call more than once.
+func (s *Server) Close() {
+	s.Service.SetPublisher(nil)
+	s.hub.Close()
 }
 
 func securityHeaders(next http.Handler) http.Handler {

@@ -170,6 +170,9 @@ func (s *Service) UpdateRole(ctx context.Context, p *Principal, ref string, role
 		setIf(meta, "color", in.Color)
 		setIf(meta, "permissions", in.Permissions)
 		setIf(meta, "position", in.Position)
+		if in.Permissions != nil || in.Position != nil {
+			s.emitPermissionsChanged(ctx, q, place.ID)
+		}
 		return s.audit(ctx, q, place.ID, p, "role.update", "role", &role.ID, "", meta)
 	})
 	return role, err
@@ -200,6 +203,7 @@ func (s *Service) DeleteRole(ctx context.Context, p *Principal, ref string, role
 		if err := s.audit(ctx, q, place.ID, p, "role.delete", "role", &role.ID, "", map[string]any{"name": role.Name}); err != nil {
 			return err
 		}
+		s.emitPermissionsChanged(ctx, q, place.ID)
 		return q.ShiftRolePositions(ctx, store.ShiftRolePositionsParams{
 			PlaceID: place.ID, Delta: -1, FromPos: role.Position + 1, ToPos: math.MaxInt32,
 		})

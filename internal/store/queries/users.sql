@@ -66,6 +66,12 @@ DELETE FROM drafts WHERE user_id = @user_id;
 -- name: DeleteUserTopicReads :exec
 DELETE FROM topic_reads WHERE user_id = @user_id;
 
+-- name: RemoveUserMessageReactions :exec
+DELETE FROM message_reactions WHERE user_id = @user_id;
+
+-- name: DeleteUserChannelReads :exec
+DELETE FROM channel_reads WHERE user_id = @user_id;
+
 -- name: RemoveUserReactions :exec
 WITH removed AS (
     DELETE FROM post_reactions WHERE user_id = @user_id RETURNING post_id

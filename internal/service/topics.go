@@ -506,7 +506,7 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 			return err
 		}
 		if err := q.EnsureSubscription(ctx, store.EnsureSubscriptionParams{
-			UserID: p.User.ID, TargetType: "topic", TargetID: topic.ID, PlaceID: f.place.ID, Level: "watching",
+			UserID: p.User.ID, TargetType: "topic", TargetID: topic.ID, PlaceID: &f.place.ID, Level: "watching",
 		}); err != nil {
 			return err
 		}

@@ -17,6 +17,8 @@ const (
 	TierAuth    = "auth"
 	// TierContent applies to creating topics, posts and reports instead of the default tier.
 	TierContent = "content"
+	// TierChat applies to sending chat messages, reactions and typing indicators.
+	TierChat = "chat"
 )
 
 type Result struct {
@@ -58,7 +60,7 @@ func New(rdb *redis.Client, rates map[string]string) (*Limiter, error) {
 	}
 
 	l := &Limiter{tiers: map[string]*limiter.Limiter{}, backend: backend}
-	for _, name := range []string{TierDefault, TierAuth, TierContent} {
+	for _, name := range []string{TierDefault, TierAuth, TierContent, TierChat} {
 		formatted, ok := rates[name]
 		if !ok {
 			continue

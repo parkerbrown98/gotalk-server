@@ -1,6 +1,8 @@
 -- name: CreateReport :one
-INSERT INTO reports (id, place_id, reporter_id, target_type, post_id, target_user_id, reason, details, content_snapshot)
-VALUES (@id, @place_id, @reporter_id, @target_type, @post_id, @target_user_id, @reason, @details, @content_snapshot)
+INSERT INTO reports (id, place_id, reporter_id, target_type, post_id, message_id, channel_id, target_user_id,
+                     reason, details, content_snapshot)
+VALUES (@id, @place_id, @reporter_id, @target_type, @post_id, @message_id, @channel_id, @target_user_id,
+        @reason, @details, @content_snapshot)
 RETURNING *;
 
 -- name: GetReport :one

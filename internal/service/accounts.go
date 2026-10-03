@@ -173,6 +173,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, client Clien
 
 	var result *AuthResult
 	reused := false
+	sessionUser := uuid.Nil
 	err = s.tx(ctx, func(q *store.Queries) error {
 		sess, err := q.GetSessionForUpdate(ctx, sessionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -186,6 +187,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, client Clien
 		}
 		if !auth.HashesEqual(sess.RefreshTokenHash, auth.HashRefreshSecret(secret)) {
 			reused = true
+			sessionUser = sess.UserID
 			return invalid
 		}
 		user, err := q.GetUserByID(ctx, sess.UserID)
@@ -227,6 +229,8 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, client Clien
 	if reused {
 		if rerr := s.q.RevokeSessionByID(ctx, sessionID); rerr != nil {
 			s.log.Error("revoking session after refresh token reuse", "session", sessionID, "error", rerr)
+		} else if sessionUser != uuid.Nil {
+			s.emitSessionsEnded(ctx, s.q, sessionUser, []uuid.UUID{sessionID}, nil)
 		}
 		s.log.Warn("refresh token reuse detected; session revoked", "session", sessionID, "ip", client.IP)
 	}
@@ -251,7 +255,11 @@ func (s *Service) Authenticate(ctx context.Context, accessToken string) (*Princi
 }
 
 func (s *Service) Logout(ctx context.Context, p *Principal) error {
-	return s.q.RevokeSessionByID(ctx, p.SessionID)
+	if err := s.q.RevokeSessionByID(ctx, p.SessionID); err != nil {
+		return err
+	}
+	s.emitSessionsEnded(ctx, s.q, p.User.ID, []uuid.UUID{p.SessionID}, nil)
+	return nil
 }
 
 func (s *Service) GetUserByUsername(ctx context.Context, username string) (store.User, error) {
@@ -301,6 +309,7 @@ func (s *Service) ChangePassword(ctx context.Context, p *Principal, current, nex
 		if err := q.UpdateUserPassword(ctx, store.UpdateUserPasswordParams{ID: p.User.ID, PasswordHash: hash}); err != nil {
 			return err
 		}
+		s.emitSessionsEnded(ctx, q, p.User.ID, nil, &p.SessionID)
 		return q.RevokeOtherUserSessions(ctx, store.RevokeOtherUserSessionsParams{
 			UserID:        p.User.ID,
 			KeepSessionID: p.SessionID,
@@ -320,6 +329,7 @@ func (s *Service) RevokeSession(ctx context.Context, p *Principal, sessionID uui
 	if n == 0 {
 		return apperr.NotFound("session not found")
 	}
+	s.emitSessionsEnded(ctx, s.q, p.User.ID, []uuid.UUID{sessionID}, nil)
 	return nil
 }
 
@@ -352,18 +362,23 @@ func (s *Service) DeleteAccount(ctx context.Context, p *Principal, password stri
 		if err := q.RemoveAllUserMemberships(ctx, p.User.ID); err != nil {
 			return err
 		}
-		// Posts stay (attributed to a deleted account); personal activity is erased.
+		// Posts and messages stay (attributed to a deleted account); personal activity is erased.
 		for _, erase := range []func(context.Context, uuid.UUID) error{
 			q.RemoveUserReactions, q.DeleteUserNotifications, q.DeleteUserSubscriptions,
-			q.DeleteUserDrafts, q.DeleteUserTopicReads,
+			q.DeleteUserDrafts, q.DeleteUserTopicReads, q.RemoveUserMessageReactions,
+			q.DeleteUserChannelReads, q.ReassignGroupDMOwnership,
 		} {
 			if err := erase(ctx, p.User.ID); err != nil {
 				return err
 			}
 		}
+		if _, err := q.LeaveAllGroupDMs(ctx, p.User.ID); err != nil {
+			return err
+		}
 		if err := q.RevokeAllUserSessions(ctx, p.User.ID); err != nil {
 			return err
 		}
+		s.emitSessionsEnded(ctx, q, p.User.ID, nil, nil)
 		return q.SoftDeleteUser(ctx, p.User.ID)
 	})
 }

@@ -114,9 +114,10 @@ type env struct {
 }
 
 type envOpts struct {
-	dbURL    string
-	redisURL string
-	mutate   func(*config.Config)
+	dbURL     string
+	redisURL  string
+	heartbeat time.Duration
+	mutate    func(*config.Config)
 }
 
 func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
@@ -138,6 +139,7 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 	// Tests make many auth calls from one IP; TestAuthRateLimit lowers this explicitly.
 	cfg.RateLimit.Auth = "1000-M"
 	cfg.RateLimit.Content = "1000-M"
+	cfg.RateLimit.Chat = "1000-M"
 	if o.mutate != nil {
 		o.mutate(cfg)
 	}
@@ -162,10 +164,14 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 	svc, err := service.New(ctx, pool, cfg, log)
 	require.NoError(t, err)
 
-	srv := httptest.NewServer(api.New(api.Deps{
+	handler, err := api.New(api.Deps{
 		Service: svc, Limiter: limiter, Redis: rdb, Config: cfg, Logger: log, Version: "test",
-	}))
+		HeartbeatInterval: o.heartbeat,
+	})
+	require.NoError(t, err)
+	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
+	t.Cleanup(handler.Close)
 	return &env{t: t, srv: srv, svc: svc, cfg: cfg}
 }
 

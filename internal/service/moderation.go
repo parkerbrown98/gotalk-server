@@ -98,10 +98,11 @@ func (s *Service) ListAuditLog(ctx context.Context, p *Principal, ref string, fi
 }
 
 type ReportInput struct {
-	PostID  *uuid.UUID
-	UserID  *uuid.UUID
-	Reason  string
-	Details string
+	PostID    *uuid.UUID
+	MessageID *uuid.UUID
+	UserID    *uuid.UUID
+	Reason    string
+	Details   string
 }
 
 func validateReportReason(r string) error {
@@ -112,11 +113,17 @@ func validateReportReason(r string) error {
 	return apperr.Invalid("reason must be one of spam, harassment, inappropriate, off_topic, other")
 }
 
-// CreateReport flags a post or a member for moderators. Anyone who can see a post may
-// report it; reporting a user requires both parties to be members.
+// CreateReport flags a post, chat message or member for moderators. Anyone who can see a
+// post may report it; reporting a message or a user requires membership.
 func (s *Service) CreateReport(ctx context.Context, p *Principal, ref string, in ReportInput) (store.Report, error) {
-	if (in.PostID == nil) == (in.UserID == nil) {
-		return store.Report{}, apperr.Invalid("report exactly one of post_id or user_id")
+	targets := 0
+	for _, t := range []*uuid.UUID{in.PostID, in.MessageID, in.UserID} {
+		if t != nil {
+			targets++
+		}
+	}
+	if targets != 1 {
+		return store.Report{}, apperr.Invalid("report exactly one of post_id, message_id or user_id")
 	}
 	if err := validateReportReason(in.Reason); err != nil {
 		return store.Report{}, err
@@ -150,6 +157,16 @@ func (s *Service) CreateReport(ctx context.Context, p *Principal, ref string, in
 		if post.PostNumber == 1 {
 			params.ContentSnapshot = topic.Title + "\n\n" + post.Content
 		}
+	} else if in.MessageID != nil {
+		cc, m, err := s.messageFor(ctx, s.q, p, *in.MessageID)
+		if err != nil || cc.isDM() || *cc.placeID() != f.place.ID {
+			return store.Report{}, apperr.NotFound("message not found")
+		}
+		if isAuthor(m.AuthorID, p) {
+			return store.Report{}, apperr.Invalid("you cannot report your own message")
+		}
+		params.TargetType, params.MessageID, params.ChannelID, params.TargetUserID = "message", &m.ID, &m.ChannelID, m.AuthorID
+		params.ContentSnapshot = m.Content
 	} else {
 		if !f.acc.IsMember {
 			return store.Report{}, apperr.Forbidden("you are not a member of this place")

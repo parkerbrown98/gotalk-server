@@ -106,7 +106,7 @@ type EnsureSubscriptionParams struct {
 	UserID     uuid.UUID
 	TargetType string
 	TargetID   uuid.UUID
-	PlaceID    uuid.UUID
+	PlaceID    *uuid.UUID
 	Level      string
 }
 
@@ -175,7 +175,7 @@ func (q *Queries) ListDrafts(ctx context.Context, userID uuid.UUID) ([]Draft, er
 }
 
 const listNotifications = `-- name: ListNotifications :many
-SELECT id, user_id, kind, place_id, topic_id, post_id, actor_id, data, read_at, created_at FROM notifications
+SELECT id, user_id, kind, place_id, topic_id, post_id, actor_id, data, read_at, created_at, channel_id, message_id FROM notifications
 WHERE user_id = $1 AND (NOT $2::boolean OR read_at IS NULL)
 ORDER BY id DESC
 LIMIT $4 OFFSET $3
@@ -213,6 +213,8 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 			&i.Data,
 			&i.ReadAt,
 			&i.CreatedAt,
+			&i.ChannelID,
+			&i.MessageID,
 		); err != nil {
 			return nil, err
 		}
@@ -331,6 +333,24 @@ func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID uuid.UUID
 	return err
 }
 
+const markChannelNotificationsRead = `-- name: MarkChannelNotificationsRead :exec
+UPDATE notifications SET read_at = now()
+WHERE user_id = $1 AND channel_id = $2 AND read_at IS NULL
+  AND (message_id IS NULL OR message_id <= $3)
+`
+
+type MarkChannelNotificationsReadParams struct {
+	UserID    uuid.UUID
+	ChannelID *uuid.UUID
+	MessageID *uuid.UUID
+}
+
+// Reading a channel up to a message also reads the notifications it caused.
+func (q *Queries) MarkChannelNotificationsRead(ctx context.Context, arg MarkChannelNotificationsReadParams) error {
+	_, err := q.db.Exec(ctx, markChannelNotificationsRead, arg.UserID, arg.ChannelID, arg.MessageID)
+	return err
+}
+
 const markNotificationRead = `-- name: MarkNotificationRead :execrows
 UPDATE notifications SET read_at = COALESCE(read_at, now()) WHERE id = $1 AND user_id = $2
 `
@@ -374,7 +394,7 @@ type UpsertSubscriptionParams struct {
 	UserID     uuid.UUID
 	TargetType string
 	TargetID   uuid.UUID
-	PlaceID    uuid.UUID
+	PlaceID    *uuid.UUID
 	Level      string
 }
 

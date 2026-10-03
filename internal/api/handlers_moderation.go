@@ -18,10 +18,11 @@ type ReportPath struct {
 }
 
 type CreateReportRequest struct {
-	PostID  string `json:"post_id,omitempty" format:"uuid" doc:"Report a post (set exactly one of post_id or user_id)"`
-	UserID  string `json:"user_id,omitempty" format:"uuid" doc:"Report a member"`
-	Reason  string `json:"reason" enum:"spam,harassment,inappropriate,off_topic,other"`
-	Details string `json:"details,omitempty" maxLength:"2000"`
+	PostID    string `json:"post_id,omitempty" format:"uuid" doc:"Report a post (set exactly one of post_id, message_id or user_id)"`
+	MessageID string `json:"message_id,omitempty" format:"uuid" doc:"Report a chat message in one of the place's channels"`
+	UserID    string `json:"user_id,omitempty" format:"uuid" doc:"Report a member"`
+	Reason    string `json:"reason" enum:"spam,harassment,inappropriate,off_topic,other"`
+	Details   string `json:"details,omitempty" maxLength:"2000"`
 }
 
 type ResolveReportRequest struct {
@@ -40,7 +41,7 @@ type WarningRequest struct {
 
 func (s *Server) registerModeration() {
 	huma.Register(s.api, withContentRateLimit(withStatus(withAuth(operation("create-report", http.MethodPost,
-		"/places/{place}/reports", "Report a post or member to the place's moderators", tagModeration)), http.StatusCreated)),
+		"/places/{place}/reports", "Report a post, chat message or member to the place's moderators", tagModeration)), http.StatusCreated)),
 		handle(s, func(ctx context.Context, in *struct {
 			PlacePath
 			Body CreateReportRequest
@@ -49,12 +50,16 @@ func (s *Server) registerModeration() {
 			if err != nil {
 				return nil, err
 			}
+			messageID, err := parseOptionalID("message_id", in.Body.MessageID)
+			if err != nil {
+				return nil, err
+			}
 			userID, err := parseOptionalID("user_id", in.Body.UserID)
 			if err != nil {
 				return nil, err
 			}
 			r, err := s.Service.CreateReport(ctx, mustPrincipal(ctx), in.Place, service.ReportInput{
-				PostID: postID, UserID: userID, Reason: in.Body.Reason, Details: in.Body.Details,
+				PostID: postID, MessageID: messageID, UserID: userID, Reason: in.Body.Reason, Details: in.Body.Details,
 			})
 			if err != nil {
 				return nil, err
