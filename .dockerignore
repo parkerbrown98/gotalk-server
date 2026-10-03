@@ -1,0 +1,9 @@
+.git
+.github
+*.md
+!README.md
+.env
+*.yaml.local
+bin/
+dist/
+coverage.out

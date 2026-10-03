@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Set up Gotalk</title>
+<style>
+  :root { color-scheme: light dark; --accent: #5865f2; --ok: #23a55a; --warn: #f0b232; --err: #f23f43; --muted: #8a8f98; --line: color-mix(in srgb, currentColor 15%, transparent); }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+  main { max-width: 560px; width: 100%; }
+  h1 { margin: 0; font-size: 1.75rem; }
+  .muted { color: var(--muted); }
+  ol.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 16px 0 20px; }
+  ol.steps li { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  ol.steps li.done { background: var(--accent); }
+  section { display: none; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; }
+  section.active { display: block; }
+  h2 { margin: 0 0 4px; font-size: 1.2rem; }
+  label { display: block; margin-top: 14px; font-weight: 600; font-size: .9rem; }
+  label small { font-weight: 400; color: var(--muted); }
+  input, select, textarea { width: 100%; margin-top: 4px; padding: 9px 11px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  textarea { resize: vertical; min-height: 64px; }
+  .actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  button { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  ul.checks { list-style: none; padding: 0; margin: 12px 0 0; }
+  ul.checks li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  ul.checks li:first-child { border-top: 0; }
+  .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warning { background: var(--warn); } .dot.error { background: var(--err); }
+  .error { color: var(--err); margin-top: 12px; min-height: 1.5em; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
+  code { font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Welcome to Gotalk</h1>
+  <p class="muted">Let's get your instance running. This only takes a minute.</p>
+  <ol class="steps"><li></li><li></li><li></li><li></li></ol>
+
+  <section data-step="0">
+    <h2>Pre-flight checks</h2>
+    <p class="muted">Making sure everything this server depends on is reachable.</p>
+    <ul class="checks" id="checks"><li><span class="dot"></span><span>Checking&hellip;</span></li></ul>
+    <label>Setup token <small>&mdash; printed in the server logs on first boot</small>
+      <input id="token" autocomplete="off" spellcheck="false" required>
+    </label>
+    <div class="error" id="err0"></div>
+    <div class="actions"><span></span><button class="primary" id="next0">Continue</button></div>
+  </section>
+
+  <section data-step="1">
+    <h2>Your instance</h2>
+    <p class="muted">You can change all of this later.</p>
+    <label>Name <input id="name" maxlength="100" required></label>
+    <label>Description <small>(optional)</small><textarea id="description" maxlength="1000"></textarea></label>
+    <label>Who can create an account?
+      <select id="mode">
+        <option value="open">Anyone</option>
+        <option value="invite_only">Only people with an invite</option>
+        <option value="closed">Nobody (registration closed)</option>
+      </select>
+    </label>
+    <div class="error" id="err1"></div>
+    <div class="actions"><button data-back>Back</button><button class="primary" id="next1">Continue</button></div>
+  </section>
+
+  <section data-step="2">
+    <h2>Administrator account</h2>
+    <p class="muted">This account will manage the instance.</p>
+    <label>Username <input id="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_.\-]+" autocomplete="username" required></label>
+    <label>Email <input id="email" type="email" maxlength="254" autocomplete="email" required></label>
+    <label>Password <small>&mdash; at least 10 characters</small><input id="password" type="password" minlength="10" maxlength="256" autocomplete="new-password" required></label>
+    <label>Confirm password <input id="password2" type="password" autocomplete="new-password" required></label>
+    <div class="error" id="err2"></div>
+    <div class="actions"><button data-back>Back</button><button class="primary" id="finish">Finish setup</button></div>
+  </section>
+
+  <section data-step="3">
+    <h2>You're all set &#127881;</h2>
+    <p>Your instance is live. Point any Gotalk client at this address and log in as <strong id="doneUser"></strong>.</p>
+    <dl>
+      <dt>Server address</dt><dd><code id="doneURL"></code></dd>
+      <dt>API docs</dt><dd><a href="/api/v1/docs">/api/v1/docs</a></dd>
+    </dl>
+    <div class="actions"><span></span><a href="/"><button class="primary">Go to instance</button></a></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const sections = [...document.querySelectorAll("section")];
+  const bars = [...document.querySelectorAll("ol.steps li")];
+  let step = 0;
+  const show = n => {
+    step = n;
+    sections.forEach((s, i) => s.classList.toggle("active", i === n));
+    bars.forEach((b, i) => b.classList.toggle("done", i <= n));
+  };
+  document.querySelectorAll("[data-back]").forEach(b => b.addEventListener("click", () => show(step - 1)));
+
+  // Take the token from the link printed in the logs, then drop it from the address bar/history.
+  const params = new URLSearchParams(location.search);
+  if (params.get("token")) { $("token").value = params.get("token"); history.replaceState(null, "", location.pathname); }
+
+  const problem = async r => {
+    try { const p = await r.json(); return (p.errors && p.errors[0] && p.errors[0].message ? p.detail + ": " + p.errors[0].location + " " + p.errors[0].message : p.detail) || r.statusText; }
+    catch { return r.statusText; }
+  };
+
+  let checksOK = false;
+  fetch("/api/v1/setup/status").then(r => r.json()).then(s => {
+    if (!s.setup_required) { location.href = "/"; return; }
+    $("name").value = s.defaults.instance_name;
+    $("mode").value = s.defaults.registration_mode;
+    const list = $("checks"); list.innerHTML = "";
+    s.checks.forEach(c => {
+      const li = document.createElement("li");
+      const dot = document.createElement("span"); dot.className = "dot " + c.status;
+      const text = document.createElement("span");
+      const name = document.createElement("strong"); name.textContent = c.name;
+      text.append(name, document.createElement("br"), document.createTextNode(c.detail));
+      li.append(dot, text); list.append(li);
+    });
+    checksOK = !s.checks.some(c => c.status === "error");
+    if (!checksOK) $("err0").textContent = "Fix the errors above, then reload this page.";
+  }).catch(() => { $("err0").textContent = "Could not reach the server."; });
+
+  $("next0").addEventListener("click", () => {
+    if (!checksOK) return;
+    if (!$("token").value.trim()) { $("err0").textContent = "Enter the setup token from the server logs."; return; }
+    $("err0").textContent = ""; show(1);
+  });
+  $("next1").addEventListener("click", () => {
+    if (!$("name").value.trim()) { $("err1").textContent = "Give your instance a name."; return; }
+    $("err1").textContent = ""; show(2);
+  });
+  $("finish").addEventListener("click", async () => {
+    const err = $("err2");
+    for (const id of ["username", "email", "password"]) {
+      if (!$(id).checkValidity()) { err.textContent = "Check the " + id + " field: " + $(id).validationMessage; return; }
+    }
+    if ($("password").value !== $("password2").value) { err.textContent = "Passwords do not match."; return; }
+    err.textContent = ""; $("finish").disabled = true;
+    try {
+      const r = await fetch("/api/v1/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          setup_token: $("token").value.trim(),
+          instance: { name: $("name").value.trim(), description: $("description").value, registration_mode: $("mode").value },
+          admin: { username: $("username").value, email: $("email").value, password: $("password").value },
+        }),
+      });
+      if (!r.ok) {
+        const msg = await problem(r);
+        if (r.status === 403) { show(0); $("err0").textContent = msg; } else { err.textContent = msg; }
+        return;
+      }
+      $("doneUser").textContent = $("username").value;
+      $("doneURL").textContent = location.origin;
+      show(3);
+    } catch { err.textContent = "Could not reach the server."; }
+    finally { $("finish").disabled = false; }
+  });
+
+  show(0);
+})();
+</script>
+</body>
+</html>

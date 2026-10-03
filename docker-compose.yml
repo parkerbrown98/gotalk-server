@@ -1,0 +1,57 @@
+# Gotalk quick start: `docker compose up -d`, then open the setup link printed by
+# `docker compose logs gotalk`.
+#
+# For anything beyond local use, set POSTGRES_PASSWORD (and GOTALK_SERVER_PUBLIC_URL)
+# in a .env file next to this one. See .env.example.
+name: gotalk
+
+services:
+  gotalk:
+    build: .
+    image: ghcr.io/parkerbrown98/gotalk-server:latest
+    restart: unless-stopped
+    ports:
+      - "${GOTALK_PORT:-8080}:8080"
+    environment:
+      GOTALK_DATABASE_URL: "host=postgres port=5432 user=gotalk dbname=gotalk sslmode=disable"
+      PGPASSWORD: ${POSTGRES_PASSWORD:-gotalk}
+      GOTALK_REDIS_URL: redis://redis:6379/0
+      GOTALK_SERVER_PUBLIC_URL: ${GOTALK_SERVER_PUBLIC_URL:-}
+      GOTALK_LOG_FORMAT: ${GOTALK_LOG_FORMAT:-text}
+      # Optional headless setup: fill these in to skip the browser wizard.
+      GOTALK_SETUP_ADMIN_USERNAME: ${GOTALK_SETUP_ADMIN_USERNAME:-}
+      GOTALK_SETUP_ADMIN_EMAIL: ${GOTALK_SETUP_ADMIN_EMAIL:-}
+      GOTALK_SETUP_ADMIN_PASSWORD: ${GOTALK_SETUP_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gotalk
+      POSTGRES_DB: gotalk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gotalk}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gotalk -d gotalk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

@@ -1,0 +1,46 @@
+# Example configuration. Pass with `gotalk serve --config gotalk.yaml`.
+# Every key can be overridden by an environment variable: section + "_" + key, upper-cased,
+# prefixed with GOTALK_ (e.g. server.public_url -> GOTALK_SERVER_PUBLIC_URL).
+
+server:
+  addr: ":8080"
+  public_url: ""               # e.g. https://forum.example.com; derived from requests when empty
+  trust_proxy: false           # honor X-Forwarded-* headers from trusted_proxies
+  trusted_proxies: ["127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
+  cors_allowed_origins: ["*"]  # any client may connect by default
+  cors_allow_credentials: false
+  shutdown_timeout: 20s
+
+database:
+  # Defaults to a local "gotalk" database. Accepts a URL or a keyword/value DSN; libpq
+  # variables such as PGPASSWORD fill in anything omitted.
+  # url: "host=db.example.com user=gotalk dbname=gotalk sslmode=require"
+  max_conns: 20
+  auto_migrate: true
+  connect_timeout: 30s
+
+redis:
+  url: ""                      # optional; required for shared rate limits across replicas
+
+auth:
+  jwt_secret: ""               # optional; generated and stored in the database when empty
+  access_token_ttl: 15m
+  refresh_token_ttl: 720h
+
+ratelimit:
+  enabled: true
+  default: 300-M               # <limit>-<S|M|H|D>
+  auth: 10-M                   # login, register, refresh, setup, password changes
+
+log:
+  level: info                  # debug, info, warn, error
+  format: json                 # json or text
+
+setup:
+  token: ""                    # override the generated browser-wizard token
+  instance_name: Gotalk
+  instance_description: ""
+  registration_mode: open      # open, invite_only, closed
+  admin_username: ""           # set all three admin_* keys for headless setup
+  admin_email: ""
+  admin_password: ""

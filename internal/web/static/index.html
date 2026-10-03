@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gotalk</title>
+<style>
+  :root { color-scheme: light dark; --accent: #5865f2; --muted: #8a8f98; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+  main { max-width: 560px; width: 100%; }
+  h1 { margin: 0 0 4px; font-size: 2rem; }
+  p.muted { color: var(--muted); margin-top: 0; }
+  .card { border: 1px solid color-mix(in srgb, currentColor 15%, transparent); border-radius: 12px; padding: 20px 24px; margin-top: 20px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; word-break: break-all; }
+  a { color: var(--accent); }
+  code { font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="name">Gotalk</h1>
+  <p class="muted" id="description">A Gotalk instance.</p>
+  <div class="card">
+    <dl>
+      <dt>Server address</dt><dd><code id="url"></code></dd>
+      <dt>API</dt><dd><a id="docs" href="/api/v1/docs">Interactive API docs</a></dd>
+      <dt>Registration</dt><dd id="registration">&mdash;</dd>
+      <dt>Members</dt><dd id="users">&mdash;</dd>
+      <dt>Places</dt><dd id="places">&mdash;</dd>
+      <dt>Version</dt><dd id="version">&mdash;</dd>
+    </dl>
+  </div>
+  <p class="muted">Point any Gotalk client at <strong id="url2"></strong> to join this instance.</p>
+</main>
+<script>
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  set("url", location.origin); set("url2", location.origin);
+  fetch("/api/v1/instance").then(r => r.json()).then(i => {
+    document.title = i.name;
+    set("name", i.name);
+    if (i.description) set("description", i.description);
+    set("registration", { open: "Open", invite_only: "Invite only", closed: "Closed" }[i.registration_mode] || i.registration_mode);
+    set("users", i.stats.users); set("places", i.stats.places);
+    set("version", i.software.version);
+  }).catch(() => {});
+</script>
+</body>
+</html>
