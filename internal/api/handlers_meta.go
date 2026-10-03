@@ -27,23 +27,51 @@ type Software struct {
 type APIInfo struct {
 	Version           string   `json:"version"`
 	SupportedVersions []string `json:"supported_versions"`
+	MinVersion        string   `json:"min_version" doc:"Oldest API version this instance serves"`
+	MaxVersion        string   `json:"max_version" doc:"Newest API version this instance serves"`
+	VersionHeader     string   `json:"version_header" doc:"Clients may send their API version in this header; unsupported versions get 400"`
 	BaseURL           string   `json:"base_url"`
 	OpenAPIURL        string   `json:"openapi_url"`
 	DocsURL           string   `json:"docs_url"`
 	GatewayURL        string   `json:"gateway_url" doc:"WebSocket URL of the real-time gateway"`
+	TokenScopes       []string `json:"token_scopes" doc:"Scopes personal access tokens can hold"`
 }
 
 type Features struct {
-	Forums bool   `json:"forums"`
-	Chat   bool   `json:"chat"`
-	Voice  bool   `json:"voice" doc:"Voice and video channels are available (a LiveKit server is configured)"`
-	Search string `json:"search" enum:"none,postgres,meilisearch"`
+	Forums       bool   `json:"forums"`
+	Chat         bool   `json:"chat"`
+	Voice        bool   `json:"voice" doc:"Voice and video channels are available (a LiveKit server is configured)"`
+	Search       string `json:"search" enum:"none,postgres,meilisearch"`
+	APITokens    bool   `json:"api_tokens" doc:"Personal access tokens with scopes"`
+	Bots         bool   `json:"bots" doc:"Applications with bot accounts and slash commands"`
+	Webhooks     bool   `json:"webhooks" doc:"Places can send signed events to external URLs"`
+	Policies     bool   `json:"policies" doc:"Versioned policy documents and consent records"`
+	Transparency bool   `json:"transparency" doc:"Moderation statistics at /transparency"`
 }
 
 type Policies struct {
 	TermsURL      *string `json:"terms_url"`
 	PrivacyURL    *string `json:"privacy_url"`
 	GuidelinesURL *string `json:"guidelines_url"`
+	// Current lists the versions in effect, so clients can tell when to show changes.
+	Current []PolicySummary `json:"current"`
+}
+
+type Limits struct {
+	MessageLength          int `json:"message_length"`
+	PostLength             int `json:"post_length"`
+	TitleLength            int `json:"title_length"`
+	GroupDMRecipients      int `json:"group_dm_recipients"`
+	WebhooksPerPlace       int `json:"webhooks_per_place"`
+	ApplicationsPerUser    int `json:"applications_per_user"`
+	CommandsPerApplication int `json:"commands_per_application"`
+	PersonalTokens         int `json:"personal_tokens"`
+}
+
+type WebhookInfo struct {
+	Events          []string `json:"events" doc:"Events webhooks can subscribe to"`
+	SignatureHeader string   `json:"signature_header"`
+	MaxAttempts     int      `json:"max_attempts"`
 }
 
 type Stats struct {
@@ -63,11 +91,17 @@ type Instance struct {
 	Features         Features             `json:"features"`
 	RateLimits       []ratelimit.TierInfo `json:"rate_limits"`
 	Policies         Policies             `json:"policies"`
+	Limits           Limits               `json:"limits"`
+	Webhooks         WebhookInfo          `json:"webhooks"`
 	Stats            Stats                `json:"stats"`
 }
 
 func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSetting) (Instance, error) {
 	stats, err := s.Service.InstanceStats(ctx)
+	if err != nil {
+		return Instance{}, err
+	}
+	docs, err := s.Service.CurrentPolicies(ctx)
 	if err != nil {
 		return Instance{}, err
 	}
@@ -77,6 +111,19 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 	if !s.Config.RateLimit.Enabled {
 		limits = []ratelimit.TierInfo{}
 	}
+	policies := Policies{Current: mapSlice(docs, toPolicySummary)}
+	for _, d := range docs {
+		u := apiBase + "/policies/" + d.Kind
+		switch d.Kind {
+		case service.PolicyTerms:
+			policies.TermsURL = &u
+		case service.PolicyPrivacy:
+			policies.PrivacyURL = &u
+		case service.PolicyGuidelines:
+			policies.GuidelinesURL = &u
+		}
+	}
+	lim := service.InstanceLimits()
 	return Instance{
 		Name:        settings.Name,
 		Description: settings.Description,
@@ -89,17 +136,34 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		},
 		API: APIInfo{
 			Version:           APIVersion,
-			SupportedVersions: []string{APIVersion},
+			SupportedVersions: SupportedAPIVersions,
+			MinVersion:        SupportedAPIVersions[0],
+			MaxVersion:        SupportedAPIVersions[len(SupportedAPIVersions)-1],
+			VersionHeader:     APIVersionHeader,
 			BaseURL:           apiBase,
 			OpenAPIURL:        apiBase + "/openapi.json",
 			DocsURL:           apiBase + "/docs",
 			GatewayURL:        gatewayURL(base),
+			TokenScopes:       service.Scopes,
 		},
 		RegistrationMode: settings.RegistrationMode,
 		SetupRequired:    settings.SetupCompletedAt == nil,
-		Features:         Features{Forums: true, Chat: true, Voice: s.Service.VoiceEnabled(), Search: "postgres"},
-		RateLimits:       limits,
-		Stats:            Stats{Users: stats.Users, Places: stats.Places},
+		Features: Features{
+			Forums: true, Chat: true, Voice: s.Service.VoiceEnabled(), Search: "postgres",
+			APITokens: true, Bots: true, Webhooks: true, Policies: true, Transparency: true,
+		},
+		RateLimits: limits,
+		Policies:   policies,
+		Limits: Limits{
+			MessageLength: lim.MessageLength, PostLength: lim.PostLength, TitleLength: lim.TitleLength,
+			GroupDMRecipients: lim.GroupDMRecipients, WebhooksPerPlace: lim.WebhooksPerPlace,
+			ApplicationsPerUser: lim.ApplicationsPerUser, CommandsPerApplication: lim.CommandsPerApplication,
+			PersonalTokens: lim.PersonalTokens,
+		},
+		Webhooks: WebhookInfo{
+			Events: service.WebhookEvents(), SignatureHeader: service.HeaderSignature, MaxAttempts: service.MaxWebhookAttempts,
+		},
+		Stats: Stats{Users: stats.Users, Places: stats.Places},
 	}, nil
 }
 
@@ -323,7 +387,7 @@ func (s *Server) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 		"version":           s.Version,
 		"instance_url":      base,
 		"api_base_url":      base + APIPrefix,
-		"api_versions":      []string{APIVersion},
+		"api_versions":      SupportedAPIVersions,
 		"instance_info_url": base + APIPrefix + "/instance",
 		"gateway_url":       gatewayURL(base),
 	})

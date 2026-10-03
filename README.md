@@ -136,7 +136,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `auth.access_token_ttl` | `15m` | Access token lifetime |
 | `auth.refresh_token_ttl` | `720h` | Refresh token (session) lifetime |
 | `ratelimit.enabled` | `true` | Enable rate limiting |
-| `ratelimit.default` | `300-M` | Default tier, per user (or per IP when anonymous) |
+| `ratelimit.default` | `300-M` | Default tier, per user (or per IP when anonymous); a user's personal access tokens share it |
 | `ratelimit.auth` | `10-M` | Login, registration, refresh, setup, and password endpoints |
 | `ratelimit.content` | `30-M` | Creating topics, replies, and reports |
 | `ratelimit.chat` | `120-M` | Sending chat messages, reacting to them, typing indicators, and starting threads |
@@ -153,6 +153,9 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `voice.token_ttl` | `10m` | How long a voice join token can be used to connect |
 | `voice.join_timeout` | `60s` | Joins that never connect to LiveKit are dropped after this |
 | `voice.session_retention` | `720h` | How long ended voice sessions and their call quality are kept |
+| `webhooks.allow_private_networks` | `false` | Let webhooks reach loopback, private and link-local addresses. Keep off unless every place manager is trusted |
+| `webhooks.timeout` | `10s` | Timeout of each webhook delivery attempt |
+| `webhooks.delivery_retention` | `168h` | How long finished webhook deliveries stay in the delivery log |
 
 Rates use `<limit>-<period>` where period is `S`, `M`, `H`, or `D`.
 
@@ -163,12 +166,80 @@ at `/api/v1/openapi.json` (browse it at `/api/v1/docs`).
 
 **Connecting a client.** Given only a domain, fetch `/.well-known/gotalk-instance` to find
 the API base URL and gateway URL, then `GET /api/v1/instance` for the instance name,
-registration mode, supported API versions, feature flags, and published rate limits.
+registration mode, supported API versions (`min_version`/`max_version`), feature flags,
+limits (message and post lengths, webhooks per place, …), webhook events, policy links and
+published rate limits. Every API response carries a `Gotalk-Api-Version` header; clients may
+send the version they were built for in the same header, and an instance that does not
+support it answers `400` instead of failing call by call.
 
 **Authentication.** `POST /auth/register` or `/auth/login` returns a short-lived JWT access
 token (send as `Authorization: Bearer …`) and a single-use refresh token. `POST /auth/refresh`
 rotates both; presenting an already-used refresh token revokes the whole session. Sessions
 can be listed and revoked under `/users/@me/sessions`.
+
+**API tokens.** For scripts and integrations, `POST /users/@me/tokens` creates a personal
+access token (`gtp_…`, shown once, stored only as a hash) with scopes: `read` allows `GET`
+requests, `write` everything else, `gateway` the real-time connection, and `admin` keeps an
+instance administrator's powers (without it, an administrator's token acts as a regular
+user). Tokens may expire after up to 366 days and are sent like access tokens. They cannot
+manage credentials: logging out, sessions, password changes, account deletion, other tokens,
+creating or deleting applications, and recording consent all require a login session.
+Revoking a token closes its gateway connections, and changing the password revokes every
+personal access token.
+
+**Applications and bots.** `POST /applications` registers an application together with a bot
+account (`"bot": true` on its user) and returns the bot's token (`gtb_…`, shown once; reset it
+with `POST /applications/{id}/bot/token`). Bots authenticate with `Bearer` or `Bot <token>`,
+cannot log in with a password, create or own places, join places on their own, or use voice.
+Someone with `MANAGE_PLACE` adds a bot with `POST /places/{place}/bots`; private applications
+can only be added by their owner, public ones by anyone. Bots then hold `@everyone` like any new
+member, and their moderation actions are attributed to the application in the audit log
+(`metadata.via` is `bot` or `api_token`). Applications define slash commands with
+`PUT /applications/{id}/commands` (owner or the bot itself; up to 50, each with typed options).
+`GET /channels/{id}/commands` lists the commands of bots that can see a channel, and
+`POST /channels/{id}/interactions` invokes one (`SEND_MESSAGES`). Options are validated against
+the command, and the bot receives an `INTERACTION_CREATE` gateway event; it answers by sending
+an ordinary message. Interactions are not stored, so offline bots miss them. Deleting an
+application removes its bot from every place; its messages stay.
+
+**Webhooks.** Members with `MANAGE_WEBHOOKS` can create up to 10 outgoing webhooks per place
+(`/places/{place}/webhooks`). Each subscribes to events: `member.join`, `member.leave`,
+`topic.create`, `post.create`, `message.create`, `message.update` (edits), `message.delete`,
+`moderation.action` (every audit log entry; needs `VIEW_AUDIT_LOG`) and `report.create`
+(needs `MANAGE_REPORTS`). Managing a webhook, including listing it and reading its deliveries,
+also requires the permissions its events need. Content events only cover boards and channels that `@everyone` can
+see; staff-only channels and direct messages never reach webhooks. Gotalk POSTs JSON
+`{"id", "type", "webhook_id", "place_id", "created_at", "data"}`, where `data` uses the REST
+API's shapes, with headers `Gotalk-Event`, `Gotalk-Webhook-Id`, `Gotalk-Delivery-Id` (use it
+to deduplicate), `Gotalk-Delivery-Attempt` and `Gotalk-Signature: t=<unix>,v1=<hex>`. The
+signature is the HMAC-SHA256 of `<t>.<body>` keyed with the webhook's secret (returned on
+creation and by `POST /webhooks/{id}/secret`); reject stale timestamps. Any `2xx` counts as
+delivered. Redirects are not followed, and failures are retried after 30 seconds, 2 minutes,
+10 minutes, 1 hour and 6 hours. After 10 deliveries in a row fail every attempt, the webhook
+is disabled (and audited). Deliveries are written in the same transaction as the event, so
+none are lost or sent for rolled-back changes. Any replica can send them, in no particular
+order. `GET /webhooks/{id}/deliveries` shows each delivery's attempts, status code, error and
+payload; `POST …/redeliver` and `POST /webhooks/{id}/ping` queue new ones. Webhooks cannot
+reach loopback, private, link-local or other non-public addresses (checked after DNS
+resolution) unless `webhooks.allow_private_networks` is set.
+
+**Policies and consent.** Instance administrators publish versioned policies
+(`POST /policies/{kind}` for `terms`, `privacy` and `guidelines`), optionally scheduled up to a
+year ahead and marked as requiring consent. `GET /policies` lists the versions in effect,
+`/policies/{kind}/versions` is the changelog (each version can carry a summary of what
+changed), and `/instance` links to them. Consent is an append-only log per purpose:
+`POST /users/@me/consents` records accepting a policy version or giving or withdrawing
+another purpose such as `analytics`. `GET /users/@me/consents` returns the latest decision per
+purpose plus the `outstanding` policies whose current version the user has not accepted, which
+clients should show. Registration accepts `accept_policies: true` to record consent to every
+current policy that requires it. Consent records survive account deletion as proof, without
+IP address or user agent.
+
+**Transparency.** `GET /transparency` (instance-wide) and `GET /places/{place}/transparency`
+(anyone who can see the place) report, for a period of up to 366 days (default: the last 30),
+how many reports were filed by reason and their status, how many moderation actions were
+taken (warnings, timeouts, kicks, bans, unbans, voice disconnects, deletions), and how much
+content moderators removed. Reports contain counts only.
 
 **Places.** Communities are *places* with `public` (listed, open to join), `invite_only`
 (listed, join by invite) or `private` (unlisted, hidden from non-members) visibility. Places
@@ -320,7 +391,8 @@ frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type)
 1. The server sends `{"op":"hello","d":{"heartbeat_interval":30000}}`.
 2. Within 10 seconds, send `{"op":"identify","d":{"token":"<access token>","status":"online"}}`.
    The server replies with a `READY` event containing `user`, `session_id`, `place_ids` and
-   `voice_state` (null when not in a voice channel).
+   `voice_state` (null when not in a voice channel). Personal access tokens with the `gateway`
+   scope and bot tokens work too; their `session_id` is the token's ID.
 3. Send `{"op":"heartbeat"}` every `heartbeat_interval` milliseconds; the server answers
    `{"op":"heartbeat_ack"}`. Change status with
    `{"op":"presence_update","d":{"status":"idle"}}`, and relay speaking indicators while in
@@ -343,6 +415,7 @@ frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type)
 | `VOICE_STATE_UPDATE` | The user and everyone who can see the voice channel; `channel_id` is null when the user left it |
 | `VOICE_SERVER_UPDATE` | A member who was moved to another voice channel (new `url`, `token` and `room`) |
 | `VOICE_SPEAKING` | Everyone who can see the voice channel |
+| `INTERACTION_CREATE` | The bot whose slash command was invoked |
 
 Permission changes such as roles, overwrites, joins and kicks take effect immediately: a
 kicked member stops receiving the place's events. Ending a session (logout, revocation,
@@ -357,7 +430,7 @@ Sessions cannot be resumed; after reconnecting, clients refetch what they need w
 | `4001` | Invalid frame, unknown op, or invalid status |
 | `4002` | Sent something before `identify` |
 | `4003` | Sent `identify` twice |
-| `4004` | Authentication failed |
+| `4004` | Authentication failed, or the API token lacks the `gateway` scope |
 | `4007` | Events may have been missed (e.g. the server lost its Redis connection); reconnect |
 | `4008` | Too many frames (over 120 per minute) or too slow to read events |
 | `4009` | Missed heartbeats |
@@ -385,11 +458,16 @@ Sessions cannot be resumed; after reconnecting, clients refetch what they need w
 | Direct messages | `GET/POST /users/@me/channels`, `PUT/DELETE /channels/{channelID}/recipients/{userID}`, `GET /channels/{channelID}/receipts` |
 | Real time | `GET /presences?user_ids=…`, WebSocket `/gateway` |
 | Voice | `POST /channels/{channelID}/voice`, `GET /channels/{channelID}/voice/sessions`, `GET/PATCH/DELETE /users/@me/voice`, `POST /users/@me/voice/telemetry`, `GET /places/{place}/voice-states`, `GET/PATCH/DELETE /places/{place}/members/{userID}/voice`, `POST /voice/webhook` (LiveKit only) |
+| Developer | `GET/POST /users/@me/tokens`, `DELETE /users/@me/tokens/{tokenID}`, `GET /rate-limits`, `GET/POST /applications`, `GET/PATCH/DELETE /applications/{applicationID}`, `POST /applications/{applicationID}/bot/token`, `GET/PUT /applications/{applicationID}/commands`, `POST /places/{place}/bots`, `GET /channels/{channelID}/commands`, `POST /channels/{channelID}/interactions` |
+| Webhooks | `GET/POST /places/{place}/webhooks`, `GET/PATCH/DELETE /webhooks/{webhookID}`, `POST /webhooks/{webhookID}/secret`, `POST /webhooks/{webhookID}/ping`, `GET /webhooks/{webhookID}/deliveries`, `POST /webhooks/{webhookID}/deliveries/{deliveryID}/redeliver` |
+| Policies | `GET /policies`, `GET/POST /policies/{kind}`, `GET /policies/{kind}/versions`, `GET /policies/{kind}/versions/{version}`, `GET/POST /users/@me/consents`, `GET /users/@me/consents/history`, `GET /transparency`, `GET /places/{place}/transparency` |
 
 **Errors** are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) `application/problem+json`
 documents. **Rate limits** are reported on every response via `X-RateLimit-Limit`,
-`X-RateLimit-Remaining`, and `X-RateLimit-Reset`; exceeded limits return `429` with
-`Retry-After`.
+`X-RateLimit-Remaining`, `X-RateLimit-Reset` and `X-RateLimit-Tier`; exceeded limits return
+`429` with `Retry-After`. `GET /rate-limits` shows the caller's standing in every tier without
+using up a request. Limits apply per user (shared by their sessions and personal access tokens;
+each bot is its own user) or per IP address when signed out.
 
 ## Development
 
@@ -416,13 +494,13 @@ generated code is out of date.
 |---|---|
 | `cmd/gotalk` | CLI entry point: serve, migrate, setup, healthcheck |
 | `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway |
-| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`) |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`, webhook queueing and delivery in `webhooks.go`) |
 | `internal/realtime` | Gateway event routing (hub), Redis or in-memory event broker, and presence store |
 | `internal/livekit` | Minimal LiveKit client: participant tokens, RoomService calls, webhook verification |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |
 | `internal/permissions` | Permission bits, role hierarchy, and board and channel overwrite rules |
-| `internal/auth` | Argon2id passwords, JWT access tokens, refresh tokens |
+| `internal/auth` | Argon2id passwords, JWT access tokens, refresh tokens, API tokens |
 | `internal/config` | Layered configuration and validation |
 | `internal/ratelimit` | Rate limit tiers backed by Redis or memory |
 | `internal/web` | Embedded landing page and setup wizard |

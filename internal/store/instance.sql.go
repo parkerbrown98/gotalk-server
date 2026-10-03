@@ -57,7 +57,7 @@ func (q *Queries) CountPlaces(ctx context.Context) (int64, error) {
 }
 
 const countUsers = `-- name: CountUsers :one
-SELECT count(*) FROM users WHERE deleted_at IS NULL
+SELECT count(*) FROM users WHERE deleted_at IS NULL AND NOT is_bot
 `
 
 func (q *Queries) CountUsers(ctx context.Context) (int64, error) {

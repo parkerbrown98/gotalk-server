@@ -15,10 +15,11 @@ const (
 )
 
 type RegisterRequest struct {
-	Username   string `json:"username" minLength:"3" maxLength:"32" pattern:"^[a-zA-Z0-9_.-]+$"`
-	Email      string `json:"email" format:"email" maxLength:"254"`
-	Password   string `json:"password" minLength:"10" maxLength:"256"`
-	InviteCode string `json:"invite_code,omitempty" maxLength:"64" doc:"Required when registration_mode is invite_only; joins the invite's place"`
+	Username       string `json:"username" minLength:"3" maxLength:"32" pattern:"^[a-zA-Z0-9_.-]+$"`
+	Email          string `json:"email" format:"email" maxLength:"254"`
+	Password       string `json:"password" minLength:"10" maxLength:"256"`
+	InviteCode     string `json:"invite_code,omitempty" maxLength:"64" doc:"Required when registration_mode is invite_only; joins the invite's place"`
+	AcceptPolicies bool   `json:"accept_policies,omitempty" doc:"Record consent to every current policy that requires it (see GET /policies)"`
 }
 
 type LoginRequest struct {
@@ -59,10 +60,11 @@ func (s *Server) registerAuth() {
 		"Create an account", tagAuth), http.StatusCreated)),
 		handle(s, func(ctx context.Context, in *Body[RegisterRequest]) (*Body[Tokens], error) {
 			res, err := s.Service.Register(ctx, service.RegisterInput{
-				Username:   in.Body.Username,
-				Email:      in.Body.Email,
-				Password:   in.Body.Password,
-				InviteCode: in.Body.InviteCode,
+				Username:       in.Body.Username,
+				Email:          in.Body.Email,
+				Password:       in.Body.Password,
+				InviteCode:     in.Body.InviteCode,
+				AcceptPolicies: in.Body.AcceptPolicies,
 			}, clientFrom(ctx))
 			if err != nil {
 				return nil, err
@@ -90,8 +92,8 @@ func (s *Server) registerAuth() {
 			return ok(toTokens(res))
 		}))
 
-	huma.Register(s.api, withStatus(withAuth(operation("logout", http.MethodPost, "/auth/logout",
-		"End the current session", tagAuth)), http.StatusNoContent),
+	huma.Register(s.api, withSessionOnly(withStatus(withAuth(operation("logout", http.MethodPost, "/auth/logout",
+		"End the current session", tagAuth)), http.StatusNoContent)),
 		handle(s, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
 			return nil, s.Service.Logout(ctx, mustPrincipal(ctx))
 		}))
@@ -119,20 +121,20 @@ func (s *Server) registerUsers() {
 			return ok(toSelfUser(user))
 		}))
 
-	huma.Register(s.api, withAuthRateLimit(withAuth(operation("delete-me", http.MethodDelete, "/users/@me",
-		"Delete the authenticated user's account", tagUsers))),
+	huma.Register(s.api, withSessionOnly(withAuthRateLimit(withAuth(operation("delete-me", http.MethodDelete, "/users/@me",
+		"Delete the authenticated user's account", tagUsers)))),
 		handle(s, func(ctx context.Context, in *Body[AccountDeleteRequest]) (*struct{}, error) {
 			return nil, s.Service.DeleteAccount(ctx, mustPrincipal(ctx), in.Body.Password)
 		}))
 
-	huma.Register(s.api, withAuthRateLimit(withStatus(withAuth(operation("change-password", http.MethodPost,
-		"/users/@me/password", "Change password and sign out other sessions", tagUsers)), http.StatusNoContent)),
+	huma.Register(s.api, withSessionOnly(withAuthRateLimit(withStatus(withAuth(operation("change-password", http.MethodPost,
+		"/users/@me/password", "Change password, sign out other sessions and revoke personal access tokens", tagUsers)), http.StatusNoContent))),
 		handle(s, func(ctx context.Context, in *Body[PasswordChangeRequest]) (*struct{}, error) {
 			return nil, s.Service.ChangePassword(ctx, mustPrincipal(ctx), in.Body.CurrentPassword, in.Body.NewPassword)
 		}))
 
-	huma.Register(s.api, withAuth(operation("list-my-sessions", http.MethodGet, "/users/@me/sessions",
-		"List active sessions (logged-in devices)", tagUsers)),
+	huma.Register(s.api, withSessionOnly(withAuth(operation("list-my-sessions", http.MethodGet, "/users/@me/sessions",
+		"List active sessions (logged-in devices)", tagUsers))),
 		handle(s, func(ctx context.Context, _ *struct{}) (*Body[[]Session], error) {
 			p := mustPrincipal(ctx)
 			sessions, err := s.Service.ListSessions(ctx, p)
@@ -146,8 +148,8 @@ func (s *Server) registerUsers() {
 			return ok(out)
 		}))
 
-	huma.Register(s.api, withAuth(operation("revoke-my-session", http.MethodDelete, "/users/@me/sessions/{sessionID}",
-		"Revoke a session", tagUsers)),
+	huma.Register(s.api, withSessionOnly(withAuth(operation("revoke-my-session", http.MethodDelete, "/users/@me/sessions/{sessionID}",
+		"Revoke a session", tagUsers))),
 		handle(s, func(ctx context.Context, in *SessionPath) (*struct{}, error) {
 			id, err := parseID("sessionID", in.SessionID)
 			if err != nil {

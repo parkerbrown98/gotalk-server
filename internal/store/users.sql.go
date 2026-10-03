@@ -36,7 +36,7 @@ func (q *Queries) CountOwnedPlaces(ctx context.Context, ownerID uuid.UUID) (int6
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, username, email, password_hash, display_name, is_instance_admin)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at
+RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot
 `
 
 type CreateUserParams struct {
@@ -72,6 +72,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBot,
 	)
 	return i, err
 }
@@ -122,7 +123,7 @@ func (q *Queries) DeleteUserTopicReads(ctx context.Context, userID uuid.UUID) er
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
@@ -142,12 +143,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBot,
 	)
 	return i, err
 }
 
 const getUserByLogin = `-- name: GetUserByLogin :one
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users
 WHERE (lower(username) = lower($1) OR lower(email) = lower($1))
   AND deleted_at IS NULL
 LIMIT 1
@@ -170,12 +172,13 @@ func (q *Queries) GetUserByLogin(ctx context.Context, login string) (User, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBot,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE lower(username) = lower($1) AND deleted_at IS NULL
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users WHERE lower(username) = lower($1) AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -195,12 +198,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBot,
 	)
 	return i, err
 }
 
 const listUsersByIDs = `-- name: ListUsersByIDs :many
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
 `
 
 func (q *Queries) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]User, error) {
@@ -226,6 +230,7 @@ func (q *Queries) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]User, 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.IsBot,
 		); err != nil {
 			return nil, err
 		}
@@ -238,7 +243,7 @@ func (q *Queries) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]User, 
 }
 
 const listUsersByUsernames = `-- name: ListUsersByUsernames :many
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at FROM users WHERE lower(username) = ANY($1::text[]) AND deleted_at IS NULL
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users WHERE lower(username) = ANY($1::text[]) AND deleted_at IS NULL
 `
 
 func (q *Queries) ListUsersByUsernames(ctx context.Context, usernames []string) ([]User, error) {
@@ -264,6 +269,7 @@ func (q *Queries) ListUsersByUsernames(ctx context.Context, usernames []string) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.IsBot,
 		); err != nil {
 			return nil, err
 		}
@@ -339,7 +345,7 @@ SET display_name = COALESCE($1::text, display_name),
                         ELSE NULLIF($4::text, '') END,
     updated_at   = now()
 WHERE id = $5 AND deleted_at IS NULL
-RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at
+RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot
 `
 
 type UpdateUserProfileParams struct {
@@ -374,6 +380,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBot,
 	)
 	return i, err
 }

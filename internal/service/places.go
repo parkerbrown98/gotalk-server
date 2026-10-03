@@ -18,6 +18,8 @@ import (
 
 const DefaultRoleName = "@everyone"
 
+const errBotJoin = "bots join places when someone with MANAGE_PLACE adds them"
+
 // Access is the caller's standing in a place.
 type Access struct {
 	IsMember bool
@@ -145,6 +147,9 @@ func validateVisibility(v string) error {
 }
 
 func (s *Service) CreatePlace(ctx context.Context, p *Principal, in CreatePlaceInput) (PlaceView, error) {
+	if err := requireHuman(p, "bots cannot create places"); err != nil {
+		return PlaceView{}, err
+	}
 	in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Visibility == "" {
@@ -355,6 +360,12 @@ func (s *Service) TransferOwnership(ctx context.Context, p *Principal, ref strin
 		if !isMember {
 			return apperr.Invalid("the new owner must be a member of the place")
 		}
+		if bot, err := isBotUser(ctx, q, newOwner); err != nil || bot {
+			if err != nil {
+				return err
+			}
+			return apperr.Invalid("bots cannot own places")
+		}
 		if err := q.TransferPlaceOwnership(ctx, store.TransferPlaceOwnershipParams{ID: place.ID, OwnerID: newOwner}); err != nil {
 			return err
 		}
@@ -379,7 +390,10 @@ func (s *Service) addMember(ctx context.Context, q *store.Queries, placeID, user
 		return err
 	}
 	s.emitJoined(ctx, q, placeID, userID)
-	return q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: 1})
+	if err := q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: 1}); err != nil {
+		return err
+	}
+	return s.queueMemberWebhook(ctx, q, placeID, userID, WebhookMemberJoin)
 }
 
 func (s *Service) removeMember(ctx context.Context, q *store.Queries, placeID, userID uuid.UUID) (bool, error) {
@@ -388,11 +402,17 @@ func (s *Service) removeMember(ctx context.Context, q *store.Queries, placeID, u
 		return false, err
 	}
 	s.emitLeft(ctx, q, placeID, userID)
-	return true, q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: -1})
+	if err := q.AdjustMemberCount(ctx, store.AdjustMemberCountParams{ID: placeID, Delta: -1}); err != nil {
+		return true, err
+	}
+	return true, s.queueMemberWebhook(ctx, q, placeID, userID, WebhookMemberLeave)
 }
 
 // JoinPlace joins a public place. Joining is idempotent.
 func (s *Service) JoinPlace(ctx context.Context, p *Principal, ref string) (PlaceView, error) {
+	if err := requireHuman(p, errBotJoin); err != nil {
+		return PlaceView{}, err
+	}
 	var view PlaceView
 	err := s.tx(ctx, func(q *store.Queries) error {
 		place, acc, err := s.placeFor(ctx, q, p, ref)

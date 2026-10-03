@@ -159,6 +159,9 @@ func (s *Service) redeemInvite(ctx context.Context, q *store.Queries, userID uui
 }
 
 func (s *Service) AcceptInvite(ctx context.Context, p *Principal, code string) (PlaceView, error) {
+	if err := requireHuman(p, errBotJoin); err != nil {
+		return PlaceView{}, err
+	}
 	var view PlaceView
 	err := s.tx(ctx, func(q *store.Queries) error {
 		place, err := s.redeemInvite(ctx, q, p.User.ID, code)

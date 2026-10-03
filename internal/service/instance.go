@@ -172,6 +172,32 @@ type InstanceStats struct {
 	Places int64
 }
 
+// Limits are fixed content and resource limits, published so clients can validate input
+// before sending it.
+type Limits struct {
+	MessageLength          int
+	PostLength             int
+	TitleLength            int
+	GroupDMRecipients      int
+	WebhooksPerPlace       int
+	ApplicationsPerUser    int
+	CommandsPerApplication int
+	PersonalTokens         int
+}
+
+func InstanceLimits() Limits {
+	return Limits{
+		MessageLength:          maxMessageLen,
+		PostLength:             maxPostLen,
+		TitleLength:            maxTitleLen,
+		GroupDMRecipients:      maxGroupRecipients,
+		WebhooksPerPlace:       MaxWebhooksPerPlace,
+		ApplicationsPerUser:    MaxApplicationsPerUser,
+		CommandsPerApplication: MaxCommandsPerApp,
+		PersonalTokens:         MaxPersonalTokens,
+	}
+}
+
 func (s *Service) InstanceStats(ctx context.Context) (InstanceStats, error) {
 	users, err := s.q.CountUsers(ctx)
 	if err != nil {

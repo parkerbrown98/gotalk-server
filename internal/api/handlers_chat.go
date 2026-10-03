@@ -120,11 +120,6 @@ type PresenceQuery struct {
 	UserIDs []string `query:"user_ids" minItems:"1" maxItems:"100" doc:"Comma-separated user IDs"`
 }
 
-func withChatRateLimit(op huma.Operation) huma.Operation {
-	op.Metadata = chatRateLimit
-	return op
-}
-
 func (s *Server) registerChannels() {
 	huma.Register(s.api, withAuth(operation("list-channels", http.MethodGet, "/places/{place}/channels",
 		"List the categories, text and voice channels the caller can see, each category followed by its channels", tagChannels)),

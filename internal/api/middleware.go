@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -145,6 +147,22 @@ func (s *Server) setupGate(next http.Handler) http.Handler {
 	})
 }
 
+// apiVersion stamps every API response with the version that served it. Clients may send
+// the version they were built for in the same header; unsupported versions are refused
+// up front instead of failing call by call.
+func apiVersion(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(APIVersionHeader, APIVersion)
+		if v := r.Header.Get(APIVersionHeader); v != "" && !slices.Contains(SupportedAPIVersions, v) {
+			writeProblem(w, http.StatusBadRequest, fmt.Sprintf(
+				"API version %q is not supported by this instance; supported versions: %s",
+				v, strings.Join(SupportedAPIVersions, ", ")))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func writeProblem(w http.ResponseWriter, status int, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
@@ -181,6 +199,10 @@ func (s *Server) authMiddleware(ctx huma.Context, next func(huma.Context)) {
 		return
 	}
 	token, ok := strings.CutPrefix(header, "Bearer ")
+	if !ok {
+		// "Bot <token>" is accepted for bot tokens, as many bot libraries send it.
+		token, ok = strings.CutPrefix(header, "Bot ")
+	}
 	if !ok || token == "" {
 		ctx.SetHeader("WWW-Authenticate", `Bearer realm="gotalk", error="invalid_request"`)
 		_ = huma.WriteErr(s.api, ctx, http.StatusUnauthorized, "authorization header must use the Bearer scheme")
@@ -198,13 +220,44 @@ func (s *Server) authMiddleware(ctx huma.Context, next func(huma.Context)) {
 		_ = huma.WriteErr(s.api, ctx, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	if p.ViaToken() && !s.tokenAllowed(ctx, p) {
+		return
+	}
 	next(huma.WithValue(ctx, principalKey, p))
 }
 
-const rateLimitTierKey = "rateLimitTier"
+// tokenAllowed enforces API token limits: session-only operations are refused, and the
+// token needs the read scope for GET requests and the write scope for everything else.
+func (s *Server) tokenAllowed(ctx huma.Context, p *service.Principal) bool {
+	op := ctx.Operation()
+	if only, _ := op.Metadata[sessionOnlyKey].(bool); only {
+		_ = huma.WriteErr(s.api, ctx, http.StatusForbidden,
+			"this endpoint requires a login session; API tokens and bots cannot use it")
+		return false
+	}
+	scope := service.ScopeWrite
+	if op.Method == http.MethodGet || op.Method == http.MethodHead {
+		scope = service.ScopeRead
+	}
+	if !p.HasScope(scope) {
+		ctx.SetHeader("WWW-Authenticate", `Bearer realm="gotalk", error="insufficient_scope", scope="`+scope+`"`)
+		_ = huma.WriteErr(s.api, ctx, http.StatusForbidden, "this token lacks the "+scope+" scope")
+		return false
+	}
+	return true
+}
 
-// rateLimitMiddleware applies the operation's tier, keyed by user when authenticated and
-// by client IP otherwise. It fails open if the backing store is unavailable.
+// rateLimitKey identifies the caller's bucket: their user (shared by all of a user's
+// sessions and personal tokens; every bot is its own user) or, when anonymous, their IP.
+func rateLimitKey(ctx context.Context) string {
+	if p := principalFrom(ctx); p != nil {
+		return "user:" + p.User.ID.String()
+	}
+	return "ip:" + clientFrom(ctx).IP
+}
+
+// rateLimitMiddleware applies the operation's tier. It fails open if the backing store is
+// unavailable.
 func (s *Server) rateLimitMiddleware(ctx huma.Context, next func(huma.Context)) {
 	if !s.Config.RateLimit.Enabled {
 		next(ctx)
@@ -214,11 +267,7 @@ func (s *Server) rateLimitMiddleware(ctx huma.Context, next func(huma.Context)) 
 	if t, ok := ctx.Operation().Metadata[rateLimitTierKey].(string); ok {
 		tier = t
 	}
-	key := "ip:" + clientFrom(ctx.Context()).IP
-	if p := principalFrom(ctx.Context()); p != nil {
-		key = "user:" + p.User.ID.String()
-	}
-	res, err := s.Limiter.Take(ctx.Context(), tier, key)
+	res, err := s.Limiter.Take(ctx.Context(), tier, rateLimitKey(ctx.Context()))
 	if err != nil {
 		s.Logger.Warn("rate limiter unavailable; allowing request", "error", err)
 		next(ctx)
@@ -228,6 +277,7 @@ func (s *Server) rateLimitMiddleware(ctx huma.Context, next func(huma.Context)) 
 		ctx.SetHeader("X-RateLimit-Limit", strconv.FormatInt(res.Limit, 10))
 		ctx.SetHeader("X-RateLimit-Remaining", strconv.FormatInt(res.Remaining, 10))
 		ctx.SetHeader("X-RateLimit-Reset", strconv.FormatInt(res.Reset.Unix(), 10))
+		ctx.SetHeader("X-RateLimit-Tier", tier)
 	}
 	if res.Reached {
 		retry := max(int64(time.Until(res.Reset).Seconds()), 1)

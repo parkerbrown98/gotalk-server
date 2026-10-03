@@ -17,8 +17,12 @@ import (
 
 // Principal is an authenticated caller.
 type Principal struct {
-	User      store.User
+	User store.User
+	// SessionID is the login session, or the API token for token callers, so ending either
+	// closes the caller's gateway connections.
 	SessionID uuid.UUID
+	// Token is set when the caller authenticated with a personal access token or bot token.
+	Token *store.ApiToken
 }
 
 type AuthResult struct {
@@ -102,6 +106,8 @@ type RegisterInput struct {
 	Email      string
 	Password   string
 	InviteCode string
+	// AcceptPolicies records consent to every current policy that requires it.
+	AcceptPolicies bool
 }
 
 // Register creates an account according to the instance's registration mode. In
@@ -131,6 +137,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput, client ClientI
 		if err != nil {
 			return err
 		}
+		if in.AcceptPolicies {
+			if err := s.acceptCurrentPolicies(ctx, q, user.ID, client); err != nil {
+				return err
+			}
+		}
 		if in.InviteCode != "" {
 			if _, err := s.redeemInvite(ctx, q, user.ID, in.InviteCode); err != nil {
 				return err
@@ -154,6 +165,10 @@ func (s *Service) Login(ctx context.Context, login, password string, client Clie
 	}
 	if err != nil {
 		return nil, err
+	}
+	if user.IsBot {
+		auth.EqualizeTiming(password)
+		return nil, invalid
 	}
 	ok, err := auth.VerifyPassword(password, user.PasswordHash)
 	if err != nil || !ok {
@@ -238,8 +253,12 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string, client Clien
 }
 
 // Authenticate validates a bearer access token and loads its live session, so revoked
-// sessions stop working immediately rather than at token expiry.
+// sessions stop working immediately rather than at token expiry. API tokens (personal
+// access tokens and bot tokens) are accepted as well.
 func (s *Service) Authenticate(ctx context.Context, accessToken string) (*Principal, error) {
+	if auth.IsAPIToken(accessToken) {
+		return s.authenticateAPIToken(ctx, accessToken)
+	}
 	userID, sessionID, err := s.tokens.Parse(accessToken)
 	if err != nil {
 		return nil, apperr.Unauthorized("access token is invalid or expired")
@@ -293,7 +312,8 @@ func (s *Service) UpdateProfile(ctx context.Context, p *Principal, in ProfileUpd
 }
 
 // ChangePassword verifies the current password, stores the new one, and signs out every
-// other session.
+// other session. Personal access tokens are revoked too, in case they were created by
+// whoever knew the old password.
 func (s *Service) ChangePassword(ctx context.Context, p *Principal, current, next string) error {
 	if ok, err := auth.VerifyPassword(current, p.User.PasswordHash); err != nil || !ok {
 		return apperr.Forbidden("current password is incorrect")
@@ -310,6 +330,9 @@ func (s *Service) ChangePassword(ctx context.Context, p *Principal, current, nex
 			return err
 		}
 		s.emitSessionsEnded(ctx, q, p.User.ID, nil, &p.SessionID)
+		if _, err := q.RevokePersonalTokens(ctx, p.User.ID); err != nil {
+			return err
+		}
 		return q.RevokeOtherUserSessions(ctx, store.RevokeOtherUserSessionsParams{
 			UserID:        p.User.ID,
 			KeepSessionID: p.SessionID,
@@ -356,29 +379,48 @@ func (s *Service) DeleteAccount(ctx context.Context, p *Principal, password stri
 				return apperr.Conflict("the last instance administrator cannot delete their account")
 			}
 		}
-		if err := q.DecrementMemberCountsForUser(ctx, p.User.ID); err != nil {
+		apps, err := q.ListOwnedApplications(ctx, p.User.ID)
+		if err != nil {
 			return err
 		}
-		if err := q.RemoveAllUserMemberships(ctx, p.User.ID); err != nil {
-			return err
-		}
-		// Posts and messages stay (attributed to a deleted account); personal activity is erased.
-		for _, erase := range []func(context.Context, uuid.UUID) error{
-			q.RemoveUserReactions, q.DeleteUserNotifications, q.DeleteUserSubscriptions,
-			q.DeleteUserDrafts, q.DeleteUserTopicReads, q.RemoveUserMessageReactions,
-			q.DeleteUserChannelReads, q.ReassignGroupDMOwnership,
-		} {
-			if err := erase(ctx, p.User.ID); err != nil {
+		for _, app := range apps {
+			if err := s.deleteApplication(ctx, q, app); err != nil {
 				return err
 			}
 		}
-		if _, err := q.LeaveAllGroupDMs(ctx, p.User.ID); err != nil {
-			return err
-		}
-		if err := q.RevokeAllUserSessions(ctx, p.User.ID); err != nil {
-			return err
-		}
-		s.emitSessionsEnded(ctx, q, p.User.ID, nil, nil)
-		return q.SoftDeleteUser(ctx, p.User.ID)
+		return s.deactivateUser(ctx, q, p.User.ID)
 	})
+}
+
+// deactivateUser soft-deletes an account: memberships are removed, sessions and API
+// tokens are revoked, and personal data is scrubbed. The username stays reserved. Callers
+// check that the user owns no places first.
+func (s *Service) deactivateUser(ctx context.Context, q *store.Queries, userID uuid.UUID) error {
+	if err := q.DecrementMemberCountsForUser(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.RemoveAllUserMemberships(ctx, userID); err != nil {
+		return err
+	}
+	// Posts and messages stay (attributed to a deleted account); personal activity is erased.
+	for _, erase := range []func(context.Context, uuid.UUID) error{
+		q.RemoveUserReactions, q.DeleteUserNotifications, q.DeleteUserSubscriptions,
+		q.DeleteUserDrafts, q.DeleteUserTopicReads, q.RemoveUserMessageReactions,
+		q.DeleteUserChannelReads, q.ReassignGroupDMOwnership, q.ScrubUserConsents,
+	} {
+		if err := erase(ctx, userID); err != nil {
+			return err
+		}
+	}
+	if _, err := q.LeaveAllGroupDMs(ctx, userID); err != nil {
+		return err
+	}
+	if err := q.RevokeAllUserSessions(ctx, userID); err != nil {
+		return err
+	}
+	if _, err := q.RevokeUserTokens(ctx, userID); err != nil {
+		return err
+	}
+	s.emitSessionsEnded(ctx, q, userID, nil, nil)
+	return q.SoftDeleteUser(ctx, userID)
 }

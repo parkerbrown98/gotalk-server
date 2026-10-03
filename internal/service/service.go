@@ -39,6 +39,9 @@ type Service struct {
 	// pending buffers what a transaction does after it commits (events to publish, hooks
 	// to run), keyed by its *store.Queries.
 	pending sync.Map
+	// encoder renders webhook payloads; webhookWake nudges the delivery loop.
+	encoder     atomic.Pointer[Encoder]
+	webhookWake chan struct{}
 }
 
 // txState is the work a transaction defers until it commits.
@@ -53,7 +56,7 @@ type txState struct {
 // New prepares the service, creating the instance settings row (with a generated JWT
 // secret and setup token) on first boot.
 func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger) (*Service, error) {
-	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log}
+	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log, webhookWake: make(chan struct{}, 1)}
 	if cfg.Voice.Enabled() {
 		v := cfg.Voice
 		client, err := livekit.New(v.LiveKitURL, v.LiveKitAPIURL, v.LiveKitAPIKey, v.LiveKitAPISecret)

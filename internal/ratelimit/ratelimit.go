@@ -81,11 +81,24 @@ func (l *Limiter) Tiers() []TierInfo { return l.info }
 
 // Take consumes one request from the tier for key. Unknown tiers are never limited.
 func (l *Limiter) Take(ctx context.Context, tier, key string) (Result, error) {
+	return l.get(ctx, tier, key, false)
+}
+
+// Peek reports the tier's state for key without consuming a request.
+func (l *Limiter) Peek(ctx context.Context, tier, key string) (Result, error) {
+	return l.get(ctx, tier, key, true)
+}
+
+func (l *Limiter) get(ctx context.Context, tier, key string, peek bool) (Result, error) {
 	lim, ok := l.tiers[tier]
 	if !ok {
 		return Result{Limit: -1}, nil
 	}
-	c, err := lim.Get(ctx, tier+":"+key)
+	get := lim.Get
+	if peek {
+		get = lim.Peek
+	}
+	c, err := get(ctx, tier+":"+key)
 	if err != nil {
 		return Result{}, err
 	}

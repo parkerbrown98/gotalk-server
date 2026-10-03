@@ -17,13 +17,14 @@ type User struct {
 	Bio         string    `json:"bio"`
 	Pronouns    string    `json:"pronouns"`
 	AvatarURL   *string   `json:"avatar_url"`
+	Bot         bool      `json:"bot" doc:"The account is an application's bot"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 // SelfUser is the authenticated user's own view, including private fields.
 type SelfUser struct {
 	User
-	Email           string `json:"email" format:"email"`
+	Email           string `json:"email" doc:"Empty for bots"`
 	EmailVerified   bool   `json:"email_verified"`
 	IsInstanceAdmin bool   `json:"is_instance_admin"`
 }
@@ -36,17 +37,22 @@ func toUser(u store.User) User {
 		Bio:         u.Bio,
 		Pronouns:    u.Pronouns,
 		AvatarURL:   u.AvatarUrl,
+		Bot:         u.IsBot,
 		CreatedAt:   u.CreatedAt,
 	}
 }
 
 func toSelfUser(u store.User) SelfUser {
-	return SelfUser{
+	out := SelfUser{
 		User:            toUser(u),
 		Email:           u.Email,
 		EmailVerified:   u.EmailVerifiedAt != nil,
 		IsInstanceAdmin: u.IsInstanceAdmin,
 	}
+	if u.IsBot {
+		out.Email = ""
+	}
+	return out
 }
 
 type Tokens struct {

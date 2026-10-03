@@ -1,7 +1,9 @@
 package api
 
 import (
+	"maps"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -12,11 +14,14 @@ import (
 )
 
 var (
-	secured          = []map[string][]string{{"bearer": {}}}
-	optionalAuth     = []map[string][]string{{"bearer": {}}, {}}
-	authRateLimit    = map[string]any{rateLimitTierKey: ratelimit.TierAuth}
-	contentRateLimit = map[string]any{rateLimitTierKey: ratelimit.TierContent}
-	chatRateLimit    = map[string]any{rateLimitTierKey: ratelimit.TierChat}
+	secured      = []map[string][]string{{"bearer": {}}}
+	optionalAuth = []map[string][]string{{"bearer": {}}, {}}
+)
+
+// Operation metadata keys read by middleware.
+const (
+	rateLimitTierKey = "rateLimitTier"
+	sessionOnlyKey   = "sessionOnly"
 )
 
 func operation(id, method, path, summary string, tag string) huma.Operation {
@@ -52,14 +57,33 @@ func withStatus(op huma.Operation, status int) huma.Operation {
 	return op
 }
 
-func withAuthRateLimit(op huma.Operation) huma.Operation {
-	op.Metadata = authRateLimit
+func withMeta(op huma.Operation, key string, v any) huma.Operation {
+	m := maps.Clone(op.Metadata)
+	if m == nil {
+		m = map[string]any{}
+	}
+	m[key] = v
+	op.Metadata = m
 	return op
 }
 
+func withAuthRateLimit(op huma.Operation) huma.Operation {
+	return withMeta(op, rateLimitTierKey, ratelimit.TierAuth)
+}
+
 func withContentRateLimit(op huma.Operation) huma.Operation {
-	op.Metadata = contentRateLimit
-	return op
+	return withMeta(op, rateLimitTierKey, ratelimit.TierContent)
+}
+
+func withChatRateLimit(op huma.Operation) huma.Operation {
+	return withMeta(op, rateLimitTierKey, ratelimit.TierChat)
+}
+
+// withSessionOnly keeps API tokens and bots away from an operation: it manages the
+// account's credentials or must be done by the person themselves.
+func withSessionOnly(op huma.Operation) huma.Operation {
+	op.Description = strings.TrimSpace(op.Description + " Requires a login session; API tokens and bots cannot call it.")
+	return withMeta(op, sessionOnlyKey, true)
 }
 
 func parseOptionalID(field, v string) (*uuid.UUID, error) {

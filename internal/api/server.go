@@ -27,7 +27,12 @@ import (
 const (
 	APIVersion = "v1"
 	APIPrefix  = "/api/" + APIVersion
+	// APIVersionHeader carries the API version on responses and, optionally, requests.
+	APIVersionHeader = "Gotalk-Api-Version"
 )
+
+// SupportedAPIVersions lists every API version this build serves, oldest first.
+var SupportedAPIVersions = []string{APIVersion}
 
 type Deps struct {
 	Service *service.Service
@@ -49,15 +54,15 @@ type Server struct {
 	proxies []netip.Prefix
 	hub     *realtime.Hub
 	handler http.Handler
-	// stopVoice ends the voice maintenance loop; voiceDone closes once it has returned.
-	stopVoice context.CancelFunc
-	voiceDone chan struct{}
-	closeOnce sync.Once
+	// stopBackground ends voice maintenance and webhook delivery; background waits for them.
+	stopBackground context.CancelFunc
+	background     sync.WaitGroup
+	closeOnce      sync.Once
 }
 
-// New builds the full HTTP handler and starts the real-time gateway.
+// New builds the full HTTP handler and starts the real-time gateway and background loops.
 func New(d Deps) (*Server, error) {
-	s := &Server{Deps: d, proxies: d.Config.Server.TrustedProxyPrefixes(), voiceDone: make(chan struct{})}
+	s := &Server{Deps: d, proxies: d.Config.Server.TrustedProxyPrefixes()}
 
 	broker, presence := realtime.NewMemoryBroker(), realtime.NewMemoryPresence()
 	if d.Redis != nil {
@@ -68,13 +73,12 @@ func New(d Deps) (*Server, error) {
 		return nil, fmt.Errorf("starting the real-time gateway: %w", err)
 	}
 	d.Service.SetPublisher(gatewayPublisher{hub: s.hub, log: d.Logger})
+	d.Service.SetEncoder(encodeEventData)
 
-	voiceCtx, stopVoice := context.WithCancel(context.Background())
-	s.stopVoice = stopVoice
-	go func() {
-		defer close(s.voiceDone)
-		d.Service.RunVoiceMaintenance(voiceCtx)
-	}()
+	bg, stop := context.WithCancel(context.Background())
+	s.stopBackground = stop
+	s.background.Go(func() { d.Service.RunVoiceMaintenance(bg) })
+	s.background.Go(func() { d.Service.RunWebhookDelivery(bg) })
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -83,10 +87,11 @@ func New(d Deps) (*Server, error) {
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   d.Config.Server.CORSAllowedOrigins,
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-Id"},
-		ExposedHeaders:   []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-Request-Id", "Link"},
+		AllowedOrigins: d.Config.Server.CORSAllowedOrigins,
+		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
+		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-Id", APIVersionHeader},
+		ExposedHeaders: []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Tier",
+			"Retry-After", "X-Request-Id", "Link", APIVersionHeader},
 		AllowCredentials: d.Config.Server.CORSAllowCredentials,
 		MaxAge:           300,
 	}))
@@ -99,17 +104,23 @@ func New(d Deps) (*Server, error) {
 	r.Get("/setup", s.handleSetupPage)
 
 	r.Route(APIPrefix, func(r chi.Router) {
+		r.Use(apiVersion)
 		r.Get(gatewayPathSuffix, s.handleGateway)
 		r.Post(voiceWebhookPath, s.handleVoiceWebhook)
 
 		cfg := huma.DefaultConfig("Gotalk API", d.Version)
 		cfg.Info.Description = "REST API for a Gotalk instance. Any client may target any instance; " +
-			"start with GET /instance to discover capabilities."
+			"start with GET /instance to discover capabilities. Authenticate with a session access token, " +
+			"a personal access token (gtp_…) or a bot token (gtb_…) as a Bearer token."
 		cfg.Servers = []*huma.Server{{URL: APIPrefix}}
 		// Drop the default $schema link transformer to keep response bodies minimal.
 		cfg.CreateHooks = nil
 		cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
-			"bearer": {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
+			"bearer": { //nolint:gosec // describes the auth scheme; not a credential
+				Type: "http", Scheme: "bearer", BearerFormat: "JWT or API token",
+				Description: "A session access token from /auth/login, or an API token. API tokens are limited " +
+					"to their scopes: read for GET requests, write for everything else.",
+			},
 		}
 		s.api = humachi.New(r, cfg)
 		s.api.UseMiddleware(s.authMiddleware, s.rateLimitMiddleware)
@@ -132,6 +143,9 @@ func New(d Deps) (*Server, error) {
 		s.registerMessages()
 		s.registerDirectMessages()
 		s.registerVoice()
+		s.registerDeveloper()
+		s.registerWebhooks()
+		s.registerPolicies()
 	})
 
 	s.handler = r
@@ -141,11 +155,11 @@ func New(d Deps) (*Server, error) {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
 
 // Close disconnects every gateway client (close code 1001), stops routing events and stops
-// voice maintenance. It is safe to call more than once.
+// the background loops. It is safe to call more than once.
 func (s *Server) Close() {
 	s.closeOnce.Do(func() {
-		s.stopVoice()
-		<-s.voiceDone
+		s.stopBackground()
+		s.background.Wait()
 	})
 	s.Service.SetPublisher(nil)
 	s.hub.Close()

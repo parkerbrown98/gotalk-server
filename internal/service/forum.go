@@ -119,6 +119,14 @@ func (f *forumScope) guest() permissions.Member {
 	}
 }
 
+// everyone is a member holding only the @everyone role; what it can see counts as public
+// within the place (and may be sent to webhooks).
+func (f *forumScope) everyone() permissions.Member {
+	m := f.guest()
+	m.Guest = false
+	return m
+}
+
 // chain returns the board's ancestry, root first, or nil if the board is unknown.
 func (f *forumScope) chain(boardID uuid.UUID) []store.Board {
 	var rev []store.Board

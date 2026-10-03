@@ -20,9 +20,10 @@ SET status = @status, resolved_by = @resolved_by, resolved_at = now(), resolutio
 WHERE id = @id AND place_id = @place_id
 RETURNING *;
 
--- name: CreateAuditEntry :exec
+-- name: CreateAuditEntry :one
 INSERT INTO audit_log (id, place_id, actor_id, action, target_type, target_id, reason, metadata)
-VALUES (@id, @place_id, @actor_id, @action, @target_type, @target_id, @reason, @metadata);
+VALUES (@id, @place_id, @actor_id, @action, @target_type, @target_id, @reason, @metadata)
+RETURNING *;
 
 -- name: ListAuditLog :many
 SELECT * FROM audit_log

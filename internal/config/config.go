@@ -35,6 +35,7 @@ type Config struct {
 	Log       Log       `koanf:"log"`
 	Setup     Setup     `koanf:"setup"`
 	Voice     Voice     `koanf:"voice"`
+	Webhooks  Webhooks  `koanf:"webhooks"`
 }
 
 type Server struct {
@@ -129,6 +130,18 @@ type Voice struct {
 // Enabled reports whether a LiveKit server is configured.
 func (v Voice) Enabled() bool { return v.LiveKitURL != "" }
 
+// Webhooks controls delivery of place webhooks to external URLs.
+type Webhooks struct {
+	// AllowPrivateNetworks lets webhooks reach loopback, private and link-local addresses.
+	// Keep it off unless every place manager is trusted, or webhooks can probe the
+	// server's internal network.
+	AllowPrivateNetworks bool `koanf:"allow_private_networks"`
+	// Timeout bounds each delivery attempt.
+	Timeout time.Duration `koanf:"timeout"`
+	// DeliveryRetention is how long finished deliveries stay in the delivery log.
+	DeliveryRetention time.Duration `koanf:"delivery_retention"`
+}
+
 // Setup holds values for headless (non-interactive) first-run setup. When the admin
 // fields are all present and the instance is not yet configured, setup completes
 // automatically at boot.
@@ -162,25 +175,27 @@ func defaults() map[string]any {
 		"server.trusted_proxies": []string{
 			"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
 		},
-		"server.shutdown_timeout":  "20s",
-		"database.url":             localDB.String(),
-		"database.max_conns":       20,
-		"database.auto_migrate":    true,
-		"database.connect_timeout": "30s",
-		"auth.access_token_ttl":    "15m",
-		"auth.refresh_token_ttl":   "720h",
-		"ratelimit.enabled":        true,
-		"ratelimit.default":        "300-M",
-		"ratelimit.auth":           "10-M",
-		"ratelimit.content":        "30-M",
-		"ratelimit.chat":           "120-M",
-		"log.level":                "info",
-		"log.format":               "json",
-		"setup.instance_name":      "Gotalk",
-		"setup.registration_mode":  "open",
-		"voice.token_ttl":          "10m",
-		"voice.join_timeout":       "60s",
-		"voice.session_retention":  "720h",
+		"server.shutdown_timeout":     "20s",
+		"database.url":                localDB.String(),
+		"database.max_conns":          20,
+		"database.auto_migrate":       true,
+		"database.connect_timeout":    "30s",
+		"auth.access_token_ttl":       "15m",
+		"auth.refresh_token_ttl":      "720h",
+		"ratelimit.enabled":           true,
+		"ratelimit.default":           "300-M",
+		"ratelimit.auth":              "10-M",
+		"ratelimit.content":           "30-M",
+		"ratelimit.chat":              "120-M",
+		"log.level":                   "info",
+		"log.format":                  "json",
+		"setup.instance_name":         "Gotalk",
+		"setup.registration_mode":     "open",
+		"voice.token_ttl":             "10m",
+		"voice.join_timeout":          "60s",
+		"voice.session_retention":     "720h",
+		"webhooks.timeout":            "10s",
+		"webhooks.delivery_retention": "168h",
 	}
 }
 
@@ -353,6 +368,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Voice.SessionRetention < time.Hour {
 		add("voice.session_retention must be at least 1h")
+	}
+	if c.Webhooks.Timeout < time.Second || c.Webhooks.Timeout > time.Minute {
+		add("webhooks.timeout must be between 1s and 1m")
+	}
+	if c.Webhooks.DeliveryRetention < time.Hour {
+		add("webhooks.delivery_retention must be at least 1h")
 	}
 
 	if len(errs) > 0 {

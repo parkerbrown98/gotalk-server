@@ -242,6 +242,9 @@ func (s *Server) identify(ctx context.Context, conn *websocket.Conn) (p *service
 	if err != nil {
 		return nil, "", closeAuthFailed, "authentication failed"
 	}
+	if !p.HasScope(service.ScopeGateway) {
+		return nil, "", closeAuthFailed, "this token lacks the gateway scope"
+	}
 	return p, d.Status, 0, ""
 }
 
@@ -341,8 +344,9 @@ func (g gatewayPublisher) Publish(ctx context.Context, ev service.Event) {
 	}
 }
 
-// encodeEventData converts service views to the same JSON shapes the REST API returns.
-// Unknown types are rejected so internal fields can never leak to clients.
+// encodeEventData converts service views to the same JSON shapes the REST API returns, for
+// gateway events and webhook payloads. Unknown types are rejected so internal fields can
+// never leak to clients.
 func encodeEventData(v any) (json.RawMessage, error) {
 	switch d := v.(type) {
 	case service.ChannelView:
@@ -357,6 +361,16 @@ func encodeEventData(v any) (json.RawMessage, error) {
 		return json.Marshal(toVoiceState(d))
 	case service.VoiceConnection:
 		return json.Marshal(toVoiceConnection(d))
+	case service.InteractionView:
+		return json.Marshal(toInteraction(d))
+	case service.MemberEvent:
+		return json.Marshal(map[string]any{"place_id": d.PlaceID, "user": toUser(d.User)})
+	case service.TopicEvent:
+		return json.Marshal(map[string]any{"topic": toTopic(d.Topic), "post": toPost(d.Post)})
+	case service.AuditView:
+		return json.Marshal(toAuditEntry(d))
+	case service.ReportView:
+		return json.Marshal(toReport(d))
 	case map[string]any:
 		return json.Marshal(d)
 	case nil:

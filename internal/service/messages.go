@@ -443,6 +443,9 @@ func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.
 		pub.Nonce = in.Nonce
 		s.emit(ctx, q, cc.event(EventMessageCreate, pub))
 		view = pub
+		if err := s.queueMessageWebhook(ctx, q, cc, WebhookMessageCreate, pub); err != nil {
+			return err
+		}
 		var dmRecipients []uuid.UUID
 		if cc.isDM() {
 			dmRecipients = others
@@ -502,6 +505,9 @@ func (s *Service) EditMessage(ctx context.Context, p *Principal, messageID uuid.
 			return err
 		}
 		s.emit(ctx, q, cc.event(EventMessageUpdate, pub))
+		if err := s.queueMessageWebhook(ctx, q, cc, WebhookMessageUpdate, pub); err != nil {
+			return err
+		}
 		view, err = s.messageView(ctx, q, p.User.ID, updated)
 		return err
 	})
@@ -540,6 +546,9 @@ func (s *Service) DeleteMessage(ctx context.Context, p *Principal, messageID uui
 			return err
 		}
 		s.emit(ctx, q, cc.event(EventMessageDelete, messageRef(cc, m)))
+		if err := s.queueMessageWebhook(ctx, q, cc, WebhookMessageDelete, messageRef(cc, m)); err != nil {
+			return err
+		}
 		if author {
 			return nil
 		}

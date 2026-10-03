@@ -10,6 +10,42 @@ import (
 	"github.com/google/uuid"
 )
 
+type ApiToken struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	ApplicationID *uuid.UUID
+	Kind          string
+	Name          string
+	TokenHash     []byte
+	TokenHint     string
+	Scopes        []string
+	CreatedAt     time.Time
+	LastUsedAt    *time.Time
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
+}
+
+type Application struct {
+	ID          uuid.UUID
+	OwnerID     uuid.UUID
+	BotUserID   uuid.UUID
+	Name        string
+	Description string
+	IconUrl     *string
+	IsPublic    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ApplicationCommand struct {
+	ID            uuid.UUID
+	ApplicationID uuid.UUID
+	Name          string
+	Description   string
+	Options       []byte
+	CreatedAt     time.Time
+}
+
 type AuditLog struct {
 	ID         uuid.UUID
 	PlaceID    uuid.UUID
@@ -91,6 +127,17 @@ type ChannelRecipient struct {
 	ChannelID uuid.UUID
 	UserID    uuid.UUID
 	JoinedAt  time.Time
+}
+
+type ConsentRecord struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	Purpose       string
+	PolicyVersion *int32
+	Granted       bool
+	IpAddress     string
+	UserAgent     string
+	CreatedAt     time.Time
 }
 
 type Draft struct {
@@ -210,6 +257,19 @@ type PlaceMember struct {
 	TimeoutUntil  *time.Time
 	VoiceMuted    bool
 	VoiceDeafened bool
+}
+
+type PolicyDocument struct {
+	ID              uuid.UUID
+	Kind            string
+	Version         int32
+	Title           string
+	Content         string
+	Summary         string
+	RequiresConsent bool
+	EffectiveAt     time.Time
+	PublishedBy     *uuid.UUID
+	CreatedAt       time.Time
 }
 
 type Post struct {
@@ -347,6 +407,7 @@ type User struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       *time.Time
+	IsBot           bool
 }
 
 type VoiceSession struct {
@@ -384,4 +445,37 @@ type VoiceState struct {
 	ConnectedAt    *time.Time
 	JoinedAt       time.Time
 	UpdatedAt      time.Time
+}
+
+type Webhook struct {
+	ID                  uuid.UUID
+	PlaceID             uuid.UUID
+	Name                string
+	Url                 string
+	Secret              string
+	Events              []string
+	IsActive            bool
+	CreatedBy           *uuid.UUID
+	ConsecutiveFailures int32
+	DisabledReason      string
+	LastDeliveryAt      *time.Time
+	LastSuccessAt       *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type WebhookDelivery struct {
+	ID             uuid.UUID
+	WebhookID      uuid.UUID
+	Event          string
+	Payload        []byte
+	Status         string
+	Attempts       int32
+	NextAttemptAt  time.Time
+	LockedUntil    *time.Time
+	ResponseStatus *int32
+	LastError      string
+	DurationMs     *int32
+	CreatedAt      time.Time
+	CompletedAt    *time.Time
 }

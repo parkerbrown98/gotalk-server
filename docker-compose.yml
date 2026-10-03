@@ -27,6 +27,8 @@ services:
       GOTALK_VOICE_LIVEKIT_API_URL: ${GOTALK_VOICE_LIVEKIT_API_URL:-http://livekit:7880}
       GOTALK_VOICE_LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-gotalk}
       GOTALK_VOICE_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-gotalk-local-voice-secret-change-me}
+      # Let place webhooks reach addresses on your own network (e.g. a home automation hub).
+      GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: ${GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS:-false}
     depends_on:
       postgres:
         condition: service_healthy

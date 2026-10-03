@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -25,10 +26,21 @@ const (
 
 var auditActionPattern = regexp.MustCompile(`^[a-z_]+(\.[a-z_]+)?$`)
 
-// audit records a moderation or administrative action in the place's audit log.
+// audit records a moderation or administrative action in the place's audit log. Actions
+// taken with an API token are marked as such, naming the token and, for bots, the
+// application.
 func (s *Service) audit(ctx context.Context, q *store.Queries, placeID uuid.UUID, actor *Principal, action, targetType string, targetID *uuid.UUID, reason string, meta map[string]any) error {
+	meta = maps.Clone(meta)
 	if meta == nil {
 		meta = map[string]any{}
+	}
+	if actor != nil && actor.Token != nil {
+		meta["via"] = "api_token"
+		meta["token_id"] = actor.Token.ID
+		if actor.Token.ApplicationID != nil {
+			meta["via"] = "bot"
+			meta["application_id"] = *actor.Token.ApplicationID
+		}
 	}
 	raw, err := json.Marshal(meta)
 	if err != nil {
@@ -42,9 +54,19 @@ func (s *Service) audit(ctx context.Context, q *store.Queries, placeID uuid.UUID
 	if actor != nil {
 		actorID = &actor.User.ID
 	}
-	return q.CreateAuditEntry(ctx, store.CreateAuditEntryParams{
+	entry, err := q.CreateAuditEntry(ctx, store.CreateAuditEntryParams{
 		ID: id, PlaceID: placeID, ActorID: actorID, Action: action, TargetType: targetType,
 		TargetID: targetID, Reason: reason, Metadata: raw,
+	})
+	if err != nil {
+		return err
+	}
+	return s.queueWebhook(ctx, q, placeID, WebhookModeration, func() (any, error) {
+		v := AuditView{Entry: entry}
+		if actor != nil {
+			v.Actor = &actor.User
+		}
+		return v, nil
 	})
 }
 
@@ -190,7 +212,20 @@ func (s *Service) CreateReport(ctx context.Context, p *Principal, ref string, in
 	if database.IsUniqueViolation(err, "reports_open_dedupe") {
 		return store.Report{}, apperr.Conflict("you already have an open report about this")
 	}
-	return report, err
+	if err != nil {
+		return report, err
+	}
+	err = s.queueWebhook(ctx, s.q, f.place.ID, WebhookReportCreate, func() (any, error) {
+		views, err := s.reportViews(ctx, s.q, []store.Report{report})
+		if err != nil {
+			return nil, err
+		}
+		return views[0], nil
+	})
+	if err != nil {
+		s.log.Error("queueing report webhook", "report", report.ID, "error", err)
+	}
+	return report, nil
 }
 
 type ReportView struct {

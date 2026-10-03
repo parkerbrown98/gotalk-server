@@ -11,9 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const createAuditEntry = `-- name: CreateAuditEntry :exec
+const createAuditEntry = `-- name: CreateAuditEntry :one
 INSERT INTO audit_log (id, place_id, actor_id, action, target_type, target_id, reason, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, place_id, actor_id, action, target_type, target_id, reason, metadata, created_at
 `
 
 type CreateAuditEntryParams struct {
@@ -27,8 +28,8 @@ type CreateAuditEntryParams struct {
 	Metadata   []byte
 }
 
-func (q *Queries) CreateAuditEntry(ctx context.Context, arg CreateAuditEntryParams) error {
-	_, err := q.db.Exec(ctx, createAuditEntry,
+func (q *Queries) CreateAuditEntry(ctx context.Context, arg CreateAuditEntryParams) (AuditLog, error) {
+	row := q.db.QueryRow(ctx, createAuditEntry,
 		arg.ID,
 		arg.PlaceID,
 		arg.ActorID,
@@ -38,7 +39,19 @@ func (q *Queries) CreateAuditEntry(ctx context.Context, arg CreateAuditEntryPara
 		arg.Reason,
 		arg.Metadata,
 	)
-	return err
+	var i AuditLog
+	err := row.Scan(
+		&i.ID,
+		&i.PlaceID,
+		&i.ActorID,
+		&i.Action,
+		&i.TargetType,
+		&i.TargetID,
+		&i.Reason,
+		&i.Metadata,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const createReport = `-- name: CreateReport :one

@@ -52,7 +52,7 @@ func (q *Queries) IsBanned(ctx context.Context, arg IsBannedParams) (bool, error
 }
 
 const listBans = `-- name: ListBans :many
-SELECT b.place_id, b.user_id, b.reason, b.banned_by, b.created_at, b.expires_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT b.place_id, b.user_id, b.reason, b.banned_by, b.created_at, b.expires_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot
 FROM place_bans b
 JOIN users u ON u.id = b.user_id
 WHERE b.place_id = $1 AND (b.expires_at IS NULL OR b.expires_at > now())
@@ -100,6 +100,7 @@ func (q *Queries) ListBans(ctx context.Context, arg ListBansParams) ([]ListBansR
 			&i.User.CreatedAt,
 			&i.User.UpdatedAt,
 			&i.User.DeletedAt,
+			&i.User.IsBot,
 		); err != nil {
 			return nil, err
 		}

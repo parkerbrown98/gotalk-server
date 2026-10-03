@@ -532,6 +532,9 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 		if err := s.deliver(ctx, q, forumEvent{f: f, topic: topic, post: &post, actorID: p.User.ID}, rs); err != nil {
 			return err
 		}
+		if err := s.queueForumWebhook(ctx, q, f, WebhookTopicCreate, topic, post); err != nil {
+			return err
+		}
 
 		if tv, err = s.topicView(ctx, q, p, topic); err != nil {
 			return err
@@ -804,6 +807,9 @@ func (s *Service) CreatePost(ctx context.Context, p *Principal, topicID uuid.UUI
 		}
 		rs.add(NotifyTopicReply, watchers...)
 		if err := s.deliver(ctx, q, forumEvent{f: f, topic: topic, post: &post, actorID: p.User.ID}, rs); err != nil {
+			return err
+		}
+		if err := s.queueForumWebhook(ctx, q, f, WebhookPostCreate, topic, post); err != nil {
 			return err
 		}
 		view, err = s.postView(ctx, q, p, f, post)

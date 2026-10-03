@@ -189,6 +189,16 @@ func (c *chatScope) has(channelID uuid.UUID, perm permissions.Permission) bool {
 
 func (c *chatScope) canView(channelID uuid.UUID) bool { return c.visibleTo(c.acc.Member, channelID) }
 
+// everyone is a member holding only the @everyone role; what it can see counts as public
+// within the place (and may be sent to webhooks).
+func (c *chatScope) everyone() permissions.Member {
+	return permissions.Member{
+		Raw:           permissions.Permission(c.defaultRole.Permissions),
+		DefaultRoleID: c.defaultRole.ID,
+		RoleIDs:       []uuid.UUID{c.defaultRole.ID},
+	}
+}
+
 // canManageUnder reports whether the caller may create or move channels under parent (or
 // at the top level when parent is nil).
 func (c *chatScope) canManageUnder(parentID *uuid.UUID) bool {

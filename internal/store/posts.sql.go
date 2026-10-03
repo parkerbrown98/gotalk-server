@@ -224,7 +224,7 @@ func (q *Queries) ListPostRevisions(ctx context.Context, postID uuid.UUID) ([]Po
 }
 
 const listReactionUsers = `-- name: ListReactionUsers :many
-SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at
+SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot
 FROM post_reactions r
 JOIN users u ON u.id = r.user_id
 WHERE r.post_id = $1 AND r.emoji = $2 AND u.deleted_at IS NULL
@@ -271,6 +271,7 @@ func (q *Queries) ListReactionUsers(ctx context.Context, arg ListReactionUsersPa
 			&i.User.CreatedAt,
 			&i.User.UpdatedAt,
 			&i.User.DeletedAt,
+			&i.User.IsBot,
 		); err != nil {
 			return nil, err
 		}

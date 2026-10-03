@@ -26,6 +26,8 @@ const (
 	ViewAuditLog    Permission = 1 << 9
 	ModerateMembers Permission = 1 << 10
 	ManageReports   Permission = 1 << 11
+	// ManageWebhooks creates, edits and deletes the place's outgoing webhooks (phase 5).
+	ManageWebhooks Permission = 1 << 12
 
 	// Forum permissions (phase 2).
 	ViewBoards    Permission = 1 << 16
@@ -63,6 +65,7 @@ var names = map[Permission]string{
 	ViewAuditLog:    "VIEW_AUDIT_LOG",
 	ModerateMembers: "MODERATE_MEMBERS",
 	ManageReports:   "MANAGE_REPORTS",
+	ManageWebhooks:  "MANAGE_WEBHOOKS",
 	ViewBoards:      "VIEW_BOARDS",
 	CreateTopics:    "CREATE_TOPICS",
 	ReplyToTopics:   "REPLY_TO_TOPICS",

@@ -257,6 +257,9 @@ type JoinVoiceInput struct {
 // (or the same one from another session) replaces their previous stay. Joining the same
 // channel again from the same session only issues a fresh token.
 func (s *Service) JoinVoice(ctx context.Context, p *Principal, channelID uuid.UUID, in JoinVoiceInput) (VoiceConnection, error) {
+	if p.ViaToken() {
+		return VoiceConnection{}, apperr.Forbidden("voice needs a login session; API tokens and bots cannot join voice channels")
+	}
 	if err := s.requireVoice(); err != nil {
 		return VoiceConnection{}, err
 	}

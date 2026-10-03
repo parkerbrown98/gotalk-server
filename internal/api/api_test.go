@@ -663,14 +663,17 @@ func TestOpenAPIAndDocs(t *testing.T) {
 	paths := spec["paths"].(map[string]any)
 	for _, p := range []string{"/auth/login", "/places/{place}", "/places/{place}/members/{userID}/roles/{roleID}", "/setup",
 		"/places/{place}/boards", "/boards/{boardID}/topics", "/topics/{topicID}/posts", "/posts/{postID}/reactions/{emoji}",
-		"/search", "/users/@me/notifications", "/places/{place}/reports", "/places/{place}/audit-log"} {
+		"/search", "/users/@me/notifications", "/places/{place}/reports", "/places/{place}/audit-log",
+		"/users/@me/tokens", "/applications/{applicationID}/commands", "/channels/{channelID}/interactions",
+		"/places/{place}/webhooks", "/webhooks/{webhookID}/deliveries", "/policies/{kind}/versions", "/transparency",
+		"/rate-limits"} {
 		require.Contains(t, paths, p)
 	}
 	servers := spec["servers"].([]any)
 	require.Equal(t, "/api/v1", servers[0].(map[string]any)["url"])
 	docs := e.expect(200, e.do("GET", "/api/v1/docs", "", nil))
 	require.True(t, strings.Contains(string(docs.Raw), "openapi"), "docs page references the spec")
-	require.Len(t, e.expect(200, e.do("GET", "/api/v1/permissions", "", nil)).list(t), 28)
+	require.Len(t, e.expect(200, e.do("GET", "/api/v1/permissions", "", nil)).list(t), 29)
 
 	e.setup()
 	features := e.expect(200, e.do("GET", "/api/v1/instance", "", nil)).obj(t)["features"].(map[string]any)

@@ -30,7 +30,7 @@ WHERE id = 1
 RETURNING *;
 
 -- name: CountUsers :one
-SELECT count(*) FROM users WHERE deleted_at IS NULL;
+SELECT count(*) FROM users WHERE deleted_at IS NULL AND NOT is_bot;
 
 -- name: CountPlaces :one
 SELECT count(*) FROM places WHERE deleted_at IS NULL;

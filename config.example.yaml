@@ -55,3 +55,8 @@ voice:
   token_ttl: 10m               # how long a voice join token can be used to connect
   join_timeout: 60s            # joins that never connect to LiveKit are dropped after this
   session_retention: 720h      # how long ended voice sessions (with call quality) are kept
+
+webhooks:
+  allow_private_networks: false  # let webhooks reach loopback/private/link-local addresses (trusted managers only)
+  timeout: 10s                 # per delivery attempt
+  delivery_retention: 168h     # how long finished deliveries stay in the delivery log

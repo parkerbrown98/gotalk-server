@@ -121,3 +121,33 @@ func RandomString(n int, alphabet string) (string, error) {
 }
 
 const Base62 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// API token prefixes tell token kinds apart at a glance and help secret scanners find
+// leaked tokens.
+const (
+	PersonalTokenPrefix = "gtp_"
+	BotTokenPrefix      = "gtb_"
+)
+
+// NewAPIToken returns a random API token with the given prefix, the hash to store, and a
+// short hint that identifies the token in listings without revealing it.
+func NewAPIToken(prefix string) (token string, hash []byte, hint string, err error) {
+	secret, err := RandomString(40, Base62)
+	if err != nil {
+		return "", nil, "", err
+	}
+	token = prefix + secret
+	return token, HashAPIToken(token), token[:len(prefix)+4], nil
+}
+
+// IsAPIToken reports whether token looks like an API token rather than a JWT.
+func IsAPIToken(token string) bool {
+	return strings.HasPrefix(token, PersonalTokenPrefix) || strings.HasPrefix(token, BotTokenPrefix)
+}
+
+// HashAPIToken is the lookup key stored for an API token. Tokens carry 238 bits of
+// entropy, so a plain SHA-256 is enough.
+func HashAPIToken(token string) []byte {
+	sum := sha256.Sum256([]byte(token))
+	return sum[:]
+}
