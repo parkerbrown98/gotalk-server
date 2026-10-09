@@ -716,6 +716,7 @@ type TopicReadState struct {
 	PlaceID            uuid.UUID
 	Read               bool
 	HasNewReplies      bool
+	NewReplyCount      int32
 	LastReadPostNumber *int32
 	UnreadCount        int32
 }
@@ -728,6 +729,9 @@ func readStateOf(t store.Topic, r *store.TopicRead) TopicReadState {
 		st.UnreadCount = max(t.LastPostNumber-n, 0)
 		st.Read = r.OpenedAt != nil
 		st.HasNewReplies = st.Read && t.LastPostNumber > r.SeenPostNumber
+		if st.HasNewReplies {
+			st.NewReplyCount = t.LastPostNumber - r.SeenPostNumber
+		}
 	}
 	return st
 }
@@ -735,6 +739,7 @@ func readStateOf(t store.Topic, r *store.TopicRead) TopicReadState {
 func (st TopicReadState) data() map[string]any {
 	return map[string]any{
 		"topic_id": st.TopicID, "place_id": st.PlaceID, "read": st.Read, "has_new_replies": st.HasNewReplies,
+		"new_reply_count":       st.NewReplyCount,
 		"last_read_post_number": st.LastReadPostNumber, "unread_count": st.UnreadCount,
 	}
 }

@@ -105,6 +105,7 @@ type Topic struct {
 type TopicViewer struct {
 	Read               bool   `json:"read" doc:"The caller has opened this topic and not marked it unread since"`
 	HasNewReplies      bool   `json:"has_new_replies" doc:"Posts arrived after the caller last opened the topic"`
+	NewReplyCount      int32  `json:"new_reply_count" doc:"How many posts arrived after the caller last opened the topic"`
 	UnreadCount        int32  `json:"unread_count" doc:"Posts after the caller's read position"`
 	LastReadPostNumber *int32 `json:"last_read_post_number" doc:"How far the caller has read; null if never"`
 	Vote               int16  `json:"vote" doc:"The caller's vote: 1, -1, or 0 for none"`
@@ -135,7 +136,7 @@ func toTopic(v service.TopicView) Topic {
 		unread := max(t.LastPostNumber-read, 0)
 		out.UnreadCount = &unread
 		out.Viewer = &TopicViewer{
-			Read: v.Opened, HasNewReplies: v.HasNewReplies(), UnreadCount: unread,
+			Read: v.Opened, HasNewReplies: v.HasNewReplies(), NewReplyCount: v.NewReplyCount(), UnreadCount: unread,
 			LastReadPostNumber: v.LastReadPostNumber, Vote: v.Vote, Subscription: sub,
 		}
 	}

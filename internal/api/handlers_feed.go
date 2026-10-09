@@ -76,13 +76,14 @@ type TopicReadState struct {
 	PlaceID            string `json:"place_id" format:"uuid"`
 	Read               bool   `json:"read"`
 	HasNewReplies      bool   `json:"has_new_replies"`
+	NewReplyCount      int32  `json:"new_reply_count"`
 	LastReadPostNumber *int32 `json:"last_read_post_number"`
 	UnreadCount        int32  `json:"unread_count"`
 }
 
 func toTopicReadState(s service.TopicReadState) TopicReadState {
 	return TopicReadState{
-		TopicID: s.TopicID.String(), PlaceID: s.PlaceID.String(), Read: s.Read, HasNewReplies: s.HasNewReplies,
+		TopicID: s.TopicID.String(), PlaceID: s.PlaceID.String(), Read: s.Read, HasNewReplies: s.HasNewReplies, NewReplyCount: s.NewReplyCount,
 		LastReadPostNumber: s.LastReadPostNumber, UnreadCount: s.UnreadCount,
 	}
 }

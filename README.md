@@ -280,8 +280,8 @@ Unicode emoji (URL-encoded in the path) or a shortcode, up to 20 distinct per po
 **Read state, subscriptions, notifications.** `PUT /topics/{id}/read` records that the
 caller opened a topic and, with an optional `post_number`, how far they have read (positions
 never move backwards). Authenticated topic responses include a `viewer` object: `read` (opened,
-and not marked unread since), `has_new_replies` (posts arrived after the last open),
-`unread_count`, `last_read_post_number`, `vote` and `subscription`; the older top-level
+and not marked unread since), `has_new_replies` and `new_reply_count` (posts since the last open),
+`unread_count` (posts after the read position), `last_read_post_number`, `vote` and `subscription`; the older top-level
 `last_read_post_number` and `unread_count` fields remain. `DELETE /topics/{id}/read` marks a
 topic unread again but keeps the position. Read changes reach the user's other sessions as
 `TOPIC_READ_STATE_UPDATE` events. Authors have read their own topics and replies.

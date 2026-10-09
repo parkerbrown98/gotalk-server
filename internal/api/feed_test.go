@@ -207,6 +207,7 @@ func TestTopicFeeds(t *testing.T) {
 	bravo = viewer(itemByTitle(t, feedItems(e.feed(bob, base+"new")), "Bravo"))
 	require.Equal(t, true, bravo["read"])
 	require.Equal(t, true, bravo["has_new_replies"])
+	require.EqualValues(t, 1, bravo["new_reply_count"])
 	require.EqualValues(t, 1, bravo["unread_count"])
 	require.Equal(t, []string{"Bravo", "Charlie", "Foxtrot"}, titles(feedItems(e.feed(bob, base+"new&hide_read=true"))),
 		"hide_read keeps read topics with new replies")

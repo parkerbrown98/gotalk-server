@@ -148,7 +148,7 @@ off, in which case scores fall back to the existing reaction counts and `controv
 
 **Read tracking:** a topic is *read* once the person has opened it, which is different from the existing
 `ReadState` position (how far through the posts they got). Both live on the same `ReadState` row. Feed items carry a `viewer` object with `read`,
-`has_new_replies` (replies posted after the last open), `unread_count`, `vote` and the last read post
+`has_new_replies` and `new_reply_count` (replies posted after the last open), `unread_count`, `vote` and the last read post
 number, so a client can dim opened topics and badge the ones that gained replies. Read state can be set
 explicitly (open, mark unread, mark a batch or a whole feed as read) and is pushed to the person's other
 sessions over the gateway. Signed-out callers get no `viewer` object; clients keep their own local record.
@@ -606,8 +606,10 @@ reactions and read state with no new infrastructure:
   `downvotes` and, for signed-in callers, the `viewer` object) plus `board` and `place` summaries
   (including the place's `voting_enabled`), `is_nsfw`, and a plain-text `excerpt` of the opening post (at
   most 280 characters; Markdown, code blocks, HTML and link targets removed). `viewer` (`read`,
-  `has_new_replies`, `unread_count`, `last_read_post_number`, `vote`, `subscription`) is also added to every
-  other topic response, so forum lists and feeds agree.
+  `has_new_replies`, `new_reply_count`, `unread_count`, `last_read_post_number`, `vote`, `subscription`) is
+  also added to every other topic response, so forum lists and feeds agree. `new_reply_count` (posts since
+  the last open) was added with the client's Phase 7. `unread_count` counts from the read position, so it
+  overstated the "N new" badge when someone opened a topic without reading to the end.
 - **Votes (`TopicVote`):** `PUT /topics/{id}/vote` with `{"value": 1 | -1}` (changes replace the earlier
   vote) and `DELETE /topics/{id}/vote`; both return the updated topic. Voting needs membership and
   `ADD_REACTIONS` in the board (no new permission bit), is refused on one's own topics, on archived topics,

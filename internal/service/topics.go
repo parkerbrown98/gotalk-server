@@ -139,6 +139,15 @@ func (v TopicView) HasNewReplies() bool {
 	return v.Opened && v.Topic.LastPostNumber > v.SeenPostNumber
 }
 
+// NewReplyCount is how many posts arrived after the caller last opened the topic (deleted ones
+// included, since post numbers are never reused).
+func (v TopicView) NewReplyCount() int32 {
+	if !v.HasNewReplies() {
+		return 0
+	}
+	return v.Topic.LastPostNumber - v.SeenPostNumber
+}
+
 type ReactionSummary struct {
 	Emoji string
 	Count int32
