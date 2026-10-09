@@ -245,6 +245,9 @@ type PlaceUpdate struct {
 	Locale      *string
 	IconURL     *string
 	BannerURL   *string
+	// VotingEnabled turns topic voting on or off; with it off, feeds rank topics by the
+	// reactions on their opening post.
+	VotingEnabled *bool
 }
 
 func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in PlaceUpdate) (PlaceView, error) {
@@ -278,15 +281,16 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 	err = s.tx(ctx, func(q *store.Queries) error {
 		var err error
 		updated, err = q.UpdatePlace(ctx, store.UpdatePlaceParams{
-			ID:          place.ID,
-			Name:        in.Name,
-			Description: in.Description,
-			Slug:        in.Slug,
-			Visibility:  in.Visibility,
-			IsNsfw:      in.IsNSFW,
-			Locale:      in.Locale,
-			IconUrl:     in.IconURL,
-			BannerUrl:   in.BannerURL,
+			ID:            place.ID,
+			Name:          in.Name,
+			Description:   in.Description,
+			Slug:          in.Slug,
+			Visibility:    in.Visibility,
+			IsNsfw:        in.IsNSFW,
+			Locale:        in.Locale,
+			IconUrl:       in.IconURL,
+			BannerUrl:     in.BannerURL,
+			VotingEnabled: in.VotingEnabled,
 		})
 		if database.IsUniqueViolation(err, "places_slug_key") {
 			return apperr.Conflict("slug is already in use")
@@ -296,6 +300,11 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 		}
 		if updated.Visibility != place.Visibility {
 			if err := s.refreshPublicBoards(ctx, q, place.ID); err != nil {
+				return err
+			}
+		}
+		if updated.VotingEnabled != place.VotingEnabled {
+			if err := q.RefreshTopicRanks(ctx, store.RefreshTopicRanksParams{PlaceID: &place.ID}); err != nil {
 				return err
 			}
 		}
@@ -317,6 +326,7 @@ func placeChanges(in PlaceUpdate) map[string]any {
 	setIf(m, "locale", in.Locale)
 	setIf(m, "icon_url", in.IconURL)
 	setIf(m, "banner_url", in.BannerURL)
+	setIf(m, "voting_enabled", in.VotingEnabled)
 	return m
 }
 

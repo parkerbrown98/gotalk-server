@@ -64,6 +64,8 @@ type UpdatePlaceRequest struct {
 	Locale      *string `json:"locale,omitempty" maxLength:"16"`
 	IconURL     *string `json:"icon_url,omitempty" maxLength:"2048" doc:"Empty string clears the icon"`
 	BannerURL   *string `json:"banner_url,omitempty" maxLength:"2048" doc:"Empty string clears the banner"`
+	// VotingEnabled is a place setting rather than a profile field.
+	VotingEnabled *bool `json:"voting_enabled,omitempty" doc:"Turn topic voting on or off"`
 }
 
 type TransferOwnershipRequest struct {
@@ -171,6 +173,7 @@ func (s *Server) registerPlaces() {
 			v, err := s.Service.UpdatePlace(ctx, mustPrincipal(ctx), in.Place, service.PlaceUpdate{
 				Name: b.Name, Description: b.Description, Slug: b.Slug, Visibility: b.Visibility,
 				IsNSFW: b.IsNSFW, Locale: b.Locale, IconURL: b.IconURL, BannerURL: b.BannerURL,
+				VotingEnabled: b.VotingEnabled,
 			})
 			if err != nil {
 				return nil, err

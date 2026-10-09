@@ -136,6 +136,7 @@ func New(d Deps) (*Server, error) {
 		s.registerTopics()
 		s.registerPosts()
 		s.registerSearch()
+		s.registerFeeds()
 		s.registerNotifications()
 		s.registerDrafts()
 		s.registerModeration()

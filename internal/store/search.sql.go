@@ -53,7 +53,7 @@ page AS (
     LIMIT $14 OFFSET $13
 )
 SELECT p.id, p.topic_id, p.place_id, p.board_id, p.author_id, p.parent_id, p.post_number, p.content, p.reaction_count, p.edit_count, p.edited_at, p.created_at, p.updated_at, p.deleted_at, p.deleted_by,
-       t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by,
+       t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy,
        page.rank::float8 AS rank,
        ts_headline('simple', p.content, q.tsq,
                    'StartSel="**", StopSel="**", MaxWords=35, MinWords=15, MaxFragments=2, FragmentDelimiter=" … "')::text AS snippet
@@ -153,6 +153,11 @@ func (q *Queries) SearchPosts(ctx context.Context, arg SearchPostsParams) ([]Sea
 			&i.Topic.UpdatedAt,
 			&i.Topic.DeletedAt,
 			&i.Topic.DeletedBy,
+			&i.Topic.Upvotes,
+			&i.Topic.Downvotes,
+			&i.Topic.Score,
+			&i.Topic.HotRank,
+			&i.Topic.Controversy,
 			&i.Rank,
 			&i.Snippet,
 		); err != nil {

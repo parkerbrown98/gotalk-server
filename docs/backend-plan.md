@@ -115,7 +115,7 @@ it just needs to describe itself well enough that a generic client can configure
 - Attachments (images, files) with size/type restrictions per Place
 - Soft-delete with tombstones (preserve thread structure when a post is removed)
 
-**Entities:** `Board`, `Topic`, `Post`, `PostRevision`, `Reaction`, `Attachment`, `ReadState`, `Subscription`, `TopicVote`, `TopicFeedStats`, `TopicOpen`
+**Entities:** `Board`, `Topic`, `Post`, `PostRevision`, `Reaction`, `Attachment`, `ReadState`, `Subscription`, `TopicVote`
 
 ### Topic feeds
 
@@ -123,7 +123,7 @@ A feed is a ranked, cursor-paged list of topics, shown Reddit-style: title, exce
 reply count, tags and state badges. Two scopes share one implementation:
 
 - **Place feed** (`GET /places/{place}/feed`): topics from every board the caller can read, optionally
-  narrowed to one or more boards or tags.
+  narrowed to a board or category (with everything below it) or a tag.
 - **Instance feed** (`GET /feed`): `scope=home` (default when signed in) merges the places the caller has
   joined; `scope=all` covers public content across the instance and is the only scope for signed-out
   callers. Each item carries its place so clients can label it.
@@ -139,7 +139,7 @@ reply count, tags and state badges. Two scopes share one implementation:
 | `rising` | recent topics gaining votes and replies fastest (last 48 hours) |
 | `controversial` | many votes that are split between up and down, with the same window as `top` |
 
-Filters: `board`, `tag`, `solved` / `unsolved`, `hide_read`, `nsfw` (excluded by default) and
+Filters: `board`, `tag`, `solved` (`true` / `false`), `hide_read`, `nsfw` (excluded by default) and
 `include_archived`. Pinned topics can be returned first on a place feed (`pinned=first`).
 
 **Voting:** each person has one up or down vote per topic (changeable and removable). Own topics cannot be
@@ -147,7 +147,7 @@ voted on. Score is `up − down`. A place setting turns voting
 off, in which case scores fall back to the existing reaction counts and `controversial` is unavailable.
 
 **Read tracking:** a topic is *read* once the person has opened it, which is different from the existing
-`ReadState` position (how far through the posts they got). Feed items carry a `viewer` object with `read`,
+`ReadState` position (how far through the posts they got). Both live on the same `ReadState` row. Feed items carry a `viewer` object with `read`,
 `has_new_replies` (replies posted after the last open), `unread_count`, `vote` and the last read post
 number, so a client can dim opened topics and badge the ones that gained replies. Read state can be set
 explicitly (open, mark unread, mark a batch or a whole feed as read) and is pushed to the person's other
@@ -340,7 +340,7 @@ these true from the same binary.
    metadata/capability-negotiation endpoints. **✅ Implemented**; see *Phase 5 status* below.
 6. **Topic Feeds:** Reddit-style feeds over forum topics for a Place and for the whole instance, topic
    votes, hot/new/active/top/rising/controversial sorting, cursor paging, and per-user "read" tracking so
-   clients can show which topics were already opened. **Planned**; see *Phase 6 plan* below.
+   clients can show which topics were already opened. **✅ Implemented**; see *Phase 6 status* below.
 7. **Self-Hosting & Cloud Polish:** Full wizard (non-interactive mode, pre-flight checks, reconfigure flow),
    configurable CORS/allowed-origins, Helm chart/k8s manifests, managed-dependency support, backup/restore,
    storage/mail provider plugins.
@@ -576,67 +576,93 @@ Deferred from sections 9 and 10:
 - **Account deletion events:** deleting an account (or an application's bot) does not send `member.leave`
   webhooks or gateway `PLACE_LEAVE` events for each place, matching the existing deletion behavior.
 
-### Phase 6 plan
+### Phase 6 status
 
-Goal: a Reddit-style feed of forum topics for a single Place and for the whole instance, sortable several
-ways, where each person's opened topics are remembered. It builds on the Phase 2 topics, reactions and read
-state, so it needs no new infrastructure (the background job runner from Phase 7 is deliberately not required).
+Delivered in [`repos/gotalk-server`](../repos/gotalk-server/README.md), building on the Phase 2 topics,
+reactions and read state with no new infrastructure:
 
-Scope:
+- **Feed endpoints:** `GET /places/{place}/feed` and `GET /feed` (`scope=home|all`) with `sort`, `t`,
+  `board` (place feeds; a board or category and everything below it), `tag`, `solved`, `hide_read`,
+  `nsfw`, `include_archived`, `pinned=first` (place feeds) and `limit` (25 by default, at most 100).
+  - Cursor paging: an opaque cursor holds the sort key, the topic ID and the time the first page was
+    loaded (`as_of`, returned with every page). Windows and the `rising` age are measured from `as_of`,
+    so they do not slide while someone pages. Immutable keys (`new`) never repeat or skip; for
+    keys that change while paging (scores on `hot`, `top`, `controversial`, `rising`, and a bump on
+    `active`, which moves the topic above the cursor), a topic can cross the cursor, so clients drop
+    duplicate IDs.
+  - Visibility: place feeds use the existing permission resolver; the home feed resolves every joined
+    place's boards, overwrites and roles in four batched queries; `scope=all` uses the derived
+    `is_public` board flag, the same rule as instance-wide search. Signed-out callers can read public
+    places' feeds and `scope=all`; `scope=home` requires sign-in.
+  - Home leaves out muted places, boards and topics using the notification rule (the most specific
+    preference wins, so a watched topic in a muted board still shows; authors watch their own topics).
+    Deleted topics never appear; archived ones only with `include_archived`.
+  - NSFW: a board counts as NSFW when it or a parent is marked. Place feeds leave out NSFW boards by
+    default but ignore the place's own flag (the caller chose to open it). Instance feeds also leave out
+    NSFW places by default.
+  - `pinned=first` returns up to 25 pinned topics in a separate `pinned` list on the first page and leaves
+    them out of the ranked items.
+- **Feed items:** the full topic (author, last poster, tags, flags, counts, `score`, `upvotes`,
+  `downvotes` and, for signed-in callers, the `viewer` object) plus `board` and `place` summaries
+  (including the place's `voting_enabled`), `is_nsfw`, and a plain-text `excerpt` of the opening post (at
+  most 280 characters; Markdown, code blocks, HTML and link targets removed). `viewer` (`read`,
+  `has_new_replies`, `unread_count`, `last_read_post_number`, `vote`, `subscription`) is also added to every
+  other topic response, so forum lists and feeds agree.
+- **Votes (`TopicVote`):** `PUT /topics/{id}/vote` with `{"value": 1 | -1}` (changes replace the earlier
+  vote) and `DELETE /topics/{id}/vote`; both return the updated topic. Voting needs membership and
+  `ADD_REACTIONS` in the board (no new permission bit), is refused on one's own topics, on archived topics,
+  and with `409` when the place has `voting_enabled` off (`PATCH /places/{place}`, default on, audited).
+  Withdrawing a vote always works. Account deletion removes the person's votes and re-ranks the topics.
+- **Ranking:** `upvotes`, `downvotes`, `score`, `hot_rank` and `controversy` are columns on the topic row,
+  updated in the same transaction as each vote, post, post deletion, reaction on an opening post and
+  `voting_enabled` change (the planned separate `TopicFeedStats` table was not needed; reply count and
+  last activity were already on the topic).
+  - `score` is up minus down votes, or the reactions on the opening post when voting is off.
+  - `hot_rank` is `sign(s)·log10(max(|s|, 1)) + (created_at − 2024-01-01) / 45000 s`, with
+    `s = score + 2·√replies`: ten times the engagement is worth 12.5 hours of age. It does not depend on the
+    current time, so stored values stay comparable and nothing has to be recomputed periodically.
+  - `controversy` is `(up + down)^(min/max)` when both are positive, otherwise 0; `controversial` lists only
+    topics above 0 and is refused (`422`) on place feeds with voting off.
+  - `rising` is computed per query over topics from the 48 hours before `as_of`:
+    `(max(score, 0) + replies + 1) / (age in hours + 2)^1.5`.
+  - Indexes per place (`place_id`, key, `id`) for hot, new, top and controversial, global ones for hot and
+    new, and the existing `last_post_at` index for active. Every sort runs as one keyset query over
+    `board_id = ANY(visible boards)`, so the home feed needs no per-place merging. On 200,000 seeded
+    topics, `EXPLAIN ANALYZE` shows index scans for hot and new (under 0.2 ms), a date-bounded index scan
+    plus top-N sort for windowed top (about 1 ms), and a 48-hour candidate set for rising (about 5 ms).
+- **Read tracking:** the existing `ReadState` row (`topic_reads`) gained `opened_at`, `first_opened_at`
+  and `seen_post_number` (the topic's last post number at the latest open); existing rows were migrated as
+  opened. A topic is read while `opened_at` is set, and has new replies when its last post number is
+  above `seen_post_number`.
+  - `PUT /topics/{id}/read` records an open; its `post_number` is now optional and still advances the
+    position. Every position advance records an open too, and so does posting a topic or reply.
+  - `DELETE /topics/{id}/read` marks a topic unread and keeps the position.
+  - `POST /feed/read` takes up to 100 topic IDs and returns their states, skipping topics that are gone
+    or hidden instead of failing the batch.
+  - `POST /places/{place}/feed/read` marks a place (or a `board_id` subtree) fully read, limited to topics
+    last active at or before `before` (usually the feed's `as_of`) so newer activity stays unread, and to
+    the 5,000 most recently active topics. It returns how many were marked. This replaces the planned
+    "before cursor": a timestamp gives the same guarantee without re-running the feed query.
+  - `TOPIC_READ_STATE_UPDATE` gateway events carry the changed states (`topics`) to all of the person's
+    sessions; marking a place read sends `all: true` with `place_id`, `board_id` and `before` instead.
+  - `hide_read` leaves out topics that are opened and have no new posts.
+- **Capability negotiation:** `/instance` advertises `features.feed` and `features.topic_votes`, plus a
+  `feed` object with the sorts, windows, default window, page sizes, read batch size, mark-all-read limit
+  and excerpt length. Places expose `voting_enabled`.
+- **Tests:** an end-to-end test covers every sort and window on aged, voted topics, cursor paging one item
+  at a time against the full list, cursor and sort mismatches, pinned-first, hidden and NSFW boards,
+  anonymous access, vote rules, voting off and back on, read/new-replies/unread transitions, `hide_read`,
+  batch and bounded mark-all-read, gateway events, home vs. all scopes across public and private places,
+  mutes overridden by watched topics, and votes removed on account deletion. Unit tests cover excerpts,
+  cursors, query defaults and vote deltas.
 
-- **Feed endpoints:**
-  - `GET /places/{place}/feed` and `GET /feed` (`scope=home|all`), with `sort`, `t`, `board`, `tag`,
-    `solved`/`unsolved`, `hide_read`, `nsfw`, `include_archived`, `pinned=first` and `limit`
-  - cursor paging with an opaque cursor that encodes the sort key and the topic ID, so items do not shift or
-    repeat while someone scrolls, unlike the offset paging used elsewhere
-  - anonymous access for public Places and `scope=all`; the visible boards are resolved with the existing
-    permission resolver for a Place, and by the derived `is_public` flag for instance-wide results (the
-    same rule search uses), so private boards never leak
-  - muted boards, topics and Places are left out of `scope=home`; moderator-removed and soft-deleted topics
-    are never returned, and archived ones only on request
-- **Feed item shape:** the topic summary plus the board, the Place (instance feed), the author, a plain-text
-  excerpt of the opening post (about 280 characters, no Markdown or HTML), score and vote counts, reply count,
-  last activity, tags, pinned/locked/solved/NSFW flags and the `viewer` object (`read`, `has_new_replies`,
-  `unread_count`, `vote`, `last_read_post_number`). The viewer object is omitted when signed out.
-- **Votes (`TopicVote`):** `PUT /topics/{id}/vote` with `{"value": 1 | -1}` and `DELETE /topics/{id}/vote`;
-  one vote per user and topic, no voting on one's own topic, rate-limited, reversible, and gated by a
-  `voting_enabled` Place setting (default on). Voting follows the existing forum reaction permission rather than
-  adding a permission bit. Account deletion removes a person's votes and recomputes the affected scores.
-- **Ranking (`TopicFeedStats`):** one row per topic with `up`, `down`, `score`, `reply_count`, `last_activity_at`,
-  `hot_rank` and `controversy`, updated in the same transaction as each vote, reply, deletion or move.
-  - `hot_rank` uses a time-independent formula (`sign(s)·log10(max(|s|, 1)) + created_at / 45000`, with `s`
-    being the score plus a damped reply weight), so the stored value stays comparable as time passes and no
-    periodic recomputation is needed
-  - `new`, `active`, `top` and `controversial` sort on indexed columns, with `top` and `controversial`
-    narrowed by the `t` window
-  - `rising` is computed at query time over a bounded 48-hour candidate set from vote and reply velocity
-  - indexes are per Place (`place_id`, sort key, `topic_id`); the home feed merges the member Places' pages
-    with a capped candidate window per Place
-  - pinned topics keep a separate ordering so `pinned=first` costs nothing on other sorts
-- **Read tracking (`TopicOpen`):**
-  - `PUT /topics/{id}/read` records that the person opened the topic (sets `first_opened_at` on the first call,
-    refreshes `last_opened_at` and snapshots the reply count at that moment). It is idempotent and cheap, and
-    the client calls it when a topic is opened, never when it merely scrolls past in a feed
-  - `DELETE /topics/{id}/read` marks a topic as unread again
-  - `POST /feed/read` takes up to 100 topic IDs (for a client replaying offline opens);
-    `POST /places/{place}/feed/read` marks everything in a Place or board read, up to an optional `before`
-    cursor, so "mark all as read" matches what the person saw
-  - `has_new_replies` is derived by comparing the current reply count with the snapshot from the last open,
-    so a topic that was opened and then gained replies is read, but flagged
-  - advancing the existing `ReadState` position of a topic also records an open, so topics opened through
-    search, a notification or a link count as read without a separate call
-  - a `TOPIC_READ_STATE_UPDATE` gateway event syncs the person's other sessions, like chat read state
-  - rows are scrubbed on account deletion and removed with their topic; reads older than a configurable
-    retention period (a year by default) are pruned lazily on write
-- **Capability negotiation:** `/instance` advertises `features.feed` and `features.topic_votes`, the supported
-  `sorts`, and the limits (page size, batch size for `POST /feed/read`).
-- **Tests:** ranking order for every sort and window, cursor stability while scores change, visibility
-  (private boards, muted places, anonymous callers, deleted and archived topics), vote rules and score
-  recomputation, read/unread/new-replies transitions, bulk mark-read, and gateway sync. A seed script produces a
-  large synthetic Place to check query plans and the `rising` candidate cap.
+Deferred from the Phase 6 plan:
 
-Deferred:
-
+- **Lazy pruning of old read records:** pruning `topic_reads` would also drop Phase 2 read positions and
+  bring old topics back as unread, so it waits for a retention policy that covers both (with the data
+  retention work in Phase 7).
+- **A reusable seed script for query plans:** plans were checked once against a 200,000-topic seed (results
+  above); a committed benchmark can follow with the Phase 7 tooling.
 - Comment (post) votes, vote-based karma and trust levels, and downvote thresholds that hide topics.
 - Personalized or learned ranking, saved topics, and custom feeds that combine chosen Places or boards.
 - Media thumbnails and link previews in feed items (they need attachments from Phase 7).

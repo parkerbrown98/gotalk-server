@@ -28,7 +28,7 @@ func (q *Queries) AdjustMemberCount(ctx context.Context, arg AdjustMemberCountPa
 const createPlace = `-- name: CreatePlace :one
 INSERT INTO places (id, slug, name, description, visibility, is_nsfw, locale, owner_id, member_count)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-RETURNING id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at
+RETURNING id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled
 `
 
 type CreatePlaceParams struct {
@@ -69,6 +69,7 @@ func (q *Queries) CreatePlace(ctx context.Context, arg CreatePlaceParams) (Place
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.VotingEnabled,
 	)
 	return i, err
 }
@@ -84,7 +85,7 @@ func (q *Queries) DecrementMemberCountsForUser(ctx context.Context, userID uuid.
 }
 
 const getPlaceByID = `-- name: GetPlaceByID :one
-SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at FROM places WHERE id = $1 AND deleted_at IS NULL
+SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled FROM places WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetPlaceByID(ctx context.Context, id uuid.UUID) (Place, error) {
@@ -105,12 +106,13 @@ func (q *Queries) GetPlaceByID(ctx context.Context, id uuid.UUID) (Place, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.VotingEnabled,
 	)
 	return i, err
 }
 
 const getPlaceBySlug = `-- name: GetPlaceBySlug :one
-SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at FROM places WHERE lower(slug) = lower($1) AND deleted_at IS NULL
+SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled FROM places WHERE lower(slug) = lower($1) AND deleted_at IS NULL
 `
 
 func (q *Queries) GetPlaceBySlug(ctx context.Context, slug string) (Place, error) {
@@ -131,12 +133,13 @@ func (q *Queries) GetPlaceBySlug(ctx context.Context, slug string) (Place, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.VotingEnabled,
 	)
 	return i, err
 }
 
 const listDiscoverablePlaces = `-- name: ListDiscoverablePlaces :many
-SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at FROM places
+SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled FROM places
 WHERE deleted_at IS NULL
   AND visibility <> 'private'
   AND ($1::text IS NULL
@@ -176,6 +179,7 @@ func (q *Queries) ListDiscoverablePlaces(ctx context.Context, arg ListDiscoverab
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.VotingEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -188,7 +192,7 @@ func (q *Queries) ListDiscoverablePlaces(ctx context.Context, arg ListDiscoverab
 }
 
 const listPlacesByIDs = `-- name: ListPlacesByIDs :many
-SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at FROM places WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
+SELECT id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled FROM places WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL
 `
 
 func (q *Queries) ListPlacesByIDs(ctx context.Context, ids []uuid.UUID) ([]Place, error) {
@@ -215,6 +219,7 @@ func (q *Queries) ListPlacesByIDs(ctx context.Context, ids []uuid.UUID) ([]Place
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.VotingEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -227,7 +232,7 @@ func (q *Queries) ListPlacesByIDs(ctx context.Context, ids []uuid.UUID) ([]Place
 }
 
 const listUserPlaces = `-- name: ListUserPlaces :many
-SELECT p.id, p.slug, p.name, p.description, p.icon_url, p.banner_url, p.visibility, p.is_nsfw, p.locale, p.owner_id, p.member_count, p.created_at, p.updated_at, p.deleted_at FROM places p
+SELECT p.id, p.slug, p.name, p.description, p.icon_url, p.banner_url, p.visibility, p.is_nsfw, p.locale, p.owner_id, p.member_count, p.created_at, p.updated_at, p.deleted_at, p.voting_enabled FROM places p
 JOIN place_members m ON m.place_id = p.id
 WHERE m.user_id = $1 AND p.deleted_at IS NULL
 ORDER BY m.joined_at
@@ -257,6 +262,7 @@ func (q *Queries) ListUserPlaces(ctx context.Context, userID uuid.UUID) ([]Place
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.VotingEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -313,21 +319,23 @@ SET name        = COALESCE($1::text, name),
                        ELSE NULLIF($7::text, '') END,
     banner_url  = CASE WHEN $8::text IS NULL THEN banner_url
                        ELSE NULLIF($8::text, '') END,
+    voting_enabled = COALESCE($9::boolean, voting_enabled),
     updated_at  = now()
-WHERE id = $9 AND deleted_at IS NULL
-RETURNING id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at
+WHERE id = $10 AND deleted_at IS NULL
+RETURNING id, slug, name, description, icon_url, banner_url, visibility, is_nsfw, locale, owner_id, member_count, created_at, updated_at, deleted_at, voting_enabled
 `
 
 type UpdatePlaceParams struct {
-	Name        *string
-	Description *string
-	Slug        *string
-	Visibility  *string
-	IsNsfw      *bool
-	Locale      *string
-	IconUrl     *string
-	BannerUrl   *string
-	ID          uuid.UUID
+	Name          *string
+	Description   *string
+	Slug          *string
+	Visibility    *string
+	IsNsfw        *bool
+	Locale        *string
+	IconUrl       *string
+	BannerUrl     *string
+	VotingEnabled *bool
+	ID            uuid.UUID
 }
 
 // Nullable params leave the column unchanged; empty icon/banner URLs clear them.
@@ -341,6 +349,7 @@ func (q *Queries) UpdatePlace(ctx context.Context, arg UpdatePlaceParams) (Place
 		arg.Locale,
 		arg.IconUrl,
 		arg.BannerUrl,
+		arg.VotingEnabled,
 		arg.ID,
 	)
 	var i Place
@@ -359,6 +368,7 @@ func (q *Queries) UpdatePlace(ctx context.Context, arg UpdatePlaceParams) (Place
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.VotingEnabled,
 	)
 	return i, err
 }

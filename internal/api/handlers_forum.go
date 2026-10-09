@@ -129,7 +129,7 @@ type SolutionRequest struct {
 }
 
 type ReadRequest struct {
-	PostNumber int32 `json:"post_number" minimum:"1" doc:"Highest post number the user has read"`
+	PostNumber *int32 `json:"post_number,omitempty" minimum:"1" doc:"Highest post number the user has read; omit to only record that the topic was opened"`
 }
 
 type SearchQuery struct {
@@ -449,16 +449,22 @@ func (s *Server) registerTopics() {
 		}))
 
 	huma.Register(s.api, withStatus(withAuth(operation("mark-topic-read", http.MethodPut, "/topics/{topicID}/read",
-		"Record the caller's read position (never moves backwards)", tagTopics)), http.StatusNoContent),
+		"Record that the caller opened the topic and, with post_number, their read position (never moves backwards)",
+		tagTopics)), http.StatusNoContent),
 		handle(s, func(ctx context.Context, in *struct {
 			TopicPath
-			Body ReadRequest
+			Body *ReadRequest `required:"false"`
 		}) (*struct{}, error) {
 			id, err := parseID("topicID", in.TopicID)
 			if err != nil {
 				return nil, err
 			}
-			return nil, s.Service.MarkRead(ctx, mustPrincipal(ctx), id, in.Body.PostNumber)
+			var n *int32
+			if in.Body != nil {
+				n = in.Body.PostNumber
+			}
+			_, err = s.Service.MarkRead(ctx, mustPrincipal(ctx), id, n)
+			return nil, err
 		}))
 
 	huma.Register(s.api, withStatus(withAuth(operation("set-topic-subscription", http.MethodPut, "/topics/{topicID}/subscription",

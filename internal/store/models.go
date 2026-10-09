@@ -224,20 +224,21 @@ type Notification struct {
 }
 
 type Place struct {
-	ID          uuid.UUID
-	Slug        string
-	Name        string
-	Description string
-	IconUrl     *string
-	BannerUrl   *string
-	Visibility  string
-	IsNsfw      bool
-	Locale      string
-	OwnerID     uuid.UUID
-	MemberCount int32
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	ID            uuid.UUID
+	Slug          string
+	Name          string
+	Description   string
+	IconUrl       *string
+	BannerUrl     *string
+	Visibility    string
+	IsNsfw        bool
+	Locale        string
+	OwnerID       uuid.UUID
+	MemberCount   int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     *time.Time
+	VotingEnabled bool
 }
 
 type PlaceBan struct {
@@ -384,6 +385,11 @@ type Topic struct {
 	UpdatedAt      time.Time
 	DeletedAt      *time.Time
 	DeletedBy      *uuid.UUID
+	Upvotes        int32
+	Downvotes      int32
+	Score          int32
+	HotRank        float64
+	Controversy    float64
 }
 
 type TopicRead struct {
@@ -391,6 +397,17 @@ type TopicRead struct {
 	TopicID            uuid.UUID
 	LastReadPostNumber int32
 	UpdatedAt          time.Time
+	OpenedAt           *time.Time
+	FirstOpenedAt      *time.Time
+	SeenPostNumber     int32
+}
+
+type TopicVote struct {
+	TopicID   uuid.UUID
+	UserID    uuid.UUID
+	Value     int16
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type User struct {

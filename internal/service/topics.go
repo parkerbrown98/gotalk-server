@@ -123,9 +123,20 @@ type TopicView struct {
 	Topic      store.Topic
 	Author     *store.User
 	LastPoster *store.User
-	// LastReadPostNumber and Subscription are only set for authenticated callers.
+	// The remaining fields are caller state, only set for authenticated callers.
 	LastReadPostNumber *int32
 	Subscription       string
+	// Opened reports whether the caller has opened the topic (and not marked it unread
+	// since); SeenPostNumber is the topic's last post number at that open.
+	Opened         bool
+	SeenPostNumber int32
+	// Vote is the caller's vote: 1, -1 or 0.
+	Vote int16
+}
+
+// HasNewReplies reports whether posts arrived after the caller last opened the topic.
+func (v TopicView) HasNewReplies() bool {
+	return v.Opened && v.Topic.LastPostNumber > v.SeenPostNumber
 }
 
 type ReactionSummary struct {
@@ -222,15 +233,23 @@ func (s *Service) topicViews(ctx context.Context, q *store.Queries, p *Principal
 	if err != nil {
 		return nil, err
 	}
-	reads := map[uuid.UUID]int32{}
+	reads := map[uuid.UUID]store.ListTopicReadsRow{}
 	subs := map[uuid.UUID]string{}
+	votes := map[uuid.UUID]int16{}
 	if p != nil && len(topicIDs) > 0 {
 		rows, err := q.ListTopicReads(ctx, store.ListTopicReadsParams{UserID: p.User.ID, TopicIds: topicIDs})
 		if err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
-			reads[r.TopicID] = r.LastReadPostNumber
+			reads[r.TopicID] = r
+		}
+		voteRows, err := q.ListTopicVotes(ctx, store.ListTopicVotesParams{UserID: p.User.ID, TopicIds: topicIDs})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range voteRows {
+			votes[r.TopicID] = r.Value
 		}
 		subRows, err := q.ListUserSubscriptions(ctx, store.ListUserSubscriptionsParams{UserID: p.User.ID, TargetIds: topicIDs})
 		if err != nil {
@@ -244,9 +263,13 @@ func (s *Service) topicViews(ctx context.Context, q *store.Queries, p *Principal
 	for i, t := range topics {
 		v := TopicView{Topic: t, Author: ptrUser(users, t.AuthorID), LastPoster: ptrUser(users, t.LastPosterID)}
 		if p != nil {
-			if n, ok := reads[t.ID]; ok {
+			if r, ok := reads[t.ID]; ok {
+				n := r.LastReadPostNumber
 				v.LastReadPostNumber = &n
+				v.Opened = r.OpenedAt != nil
+				v.SeenPostNumber = r.SeenPostNumber
 			}
+			v.Vote = votes[t.ID]
 			v.Subscription = subs[t.ID]
 			if v.Subscription == "" {
 				v.Subscription = "normal"
@@ -448,7 +471,11 @@ func (s *Service) insertPost(ctx context.Context, q *store.Queries, topic store.
 	if err := q.AdjustBoardCounts(ctx, store.AdjustBoardCountsParams{ID: topic.BoardID, Posts: 1, Touch: true}); err != nil {
 		return store.Post{}, err
 	}
-	return post, q.MarkTopicRead(ctx, store.MarkTopicReadParams{UserID: author, TopicID: topic.ID, PostNumber: num})
+	if err := s.refreshRanks(ctx, q, topic.ID); err != nil {
+		return store.Post{}, err
+	}
+	_, err = q.MarkTopicRead(ctx, store.MarkTopicReadParams{UserID: author, TopicID: topic.ID, PostNumber: num, SeenPostNumber: num})
+	return post, err
 }
 
 func (s *Service) indexPost(ctx context.Context, q *store.Queries, topic store.Topic, post store.Post) error {
@@ -921,6 +948,9 @@ func (s *Service) DeletePost(ctx context.Context, p *Principal, postID uuid.UUID
 		if err := q.AdjustTopicPostCount(ctx, store.AdjustTopicPostCountParams{ID: topic.ID, Delta: -1}); err != nil {
 			return err
 		}
+		if err := s.refreshRanks(ctx, q, topic.ID); err != nil {
+			return err
+		}
 		if err := q.AdjustBoardCounts(ctx, store.AdjustBoardCountsParams{ID: post.BoardID, Posts: -1}); err != nil {
 			return err
 		}
@@ -1029,15 +1059,27 @@ func (s *Service) SetSolution(ctx context.Context, p *Principal, topicID uuid.UU
 	return view, err
 }
 
-// MarkRead records that the caller has read a topic up to postNumber. Read positions
-// never move backwards.
-func (s *Service) MarkRead(ctx context.Context, p *Principal, topicID uuid.UUID, postNumber int32) error {
+// MarkRead records that the caller opened a topic and, when postNumber is given, has read
+// it up to that post. Read positions never move backwards.
+func (s *Service) MarkRead(ctx context.Context, p *Principal, topicID uuid.UUID, postNumber *int32) (TopicReadState, error) {
 	_, topic, err := s.topicScope(ctx, s.q, p, topicID)
 	if err != nil {
-		return err
+		return TopicReadState{}, err
 	}
-	postNumber = min(max(postNumber, 1), topic.LastPostNumber)
-	return s.q.MarkTopicRead(ctx, store.MarkTopicReadParams{UserID: p.User.ID, TopicID: topic.ID, PostNumber: postNumber})
+	n := int32(1)
+	if postNumber != nil {
+		n = *postNumber
+	}
+	n = min(max(n, 1), topic.LastPostNumber)
+	row, err := s.q.MarkTopicRead(ctx, store.MarkTopicReadParams{
+		UserID: p.User.ID, TopicID: topic.ID, PostNumber: n, SeenPostNumber: topic.LastPostNumber,
+	})
+	if err != nil {
+		return TopicReadState{}, err
+	}
+	state := readStateOf(topic, &row)
+	s.emitReadStates(ctx, s.q, p.User.ID, []TopicReadState{state})
+	return state, nil
 }
 
 // AddReaction reacts to a post. Adding the same reaction twice is a no-op.
@@ -1079,6 +1121,9 @@ func (s *Service) AddReaction(ctx context.Context, p *Principal, postID uuid.UUI
 		if err := q.AdjustReactionCount(ctx, store.AdjustReactionCountParams{ID: post.ID, Delta: 1}); err != nil {
 			return err
 		}
+		if err := s.refreshOpeningPostRank(ctx, q, post); err != nil {
+			return err
+		}
 		if post.AuthorID == nil {
 			return nil
 		}
@@ -1099,7 +1144,10 @@ func (s *Service) RemoveReaction(ctx context.Context, p *Principal, postID uuid.
 		if err != nil || n == 0 {
 			return err
 		}
-		return q.AdjustReactionCount(ctx, store.AdjustReactionCountParams{ID: post.ID, Delta: -1})
+		if err := q.AdjustReactionCount(ctx, store.AdjustReactionCountParams{ID: post.ID, Delta: -1}); err != nil {
+			return err
+		}
+		return s.refreshOpeningPostRank(ctx, q, post)
 	})
 }
 

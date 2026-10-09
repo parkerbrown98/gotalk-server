@@ -666,7 +666,7 @@ func TestOpenAPIAndDocs(t *testing.T) {
 		"/search", "/users/@me/notifications", "/places/{place}/reports", "/places/{place}/audit-log",
 		"/users/@me/tokens", "/applications/{applicationID}/commands", "/channels/{channelID}/interactions",
 		"/places/{place}/webhooks", "/webhooks/{webhookID}/deliveries", "/policies/{kind}/versions", "/transparency",
-		"/rate-limits"} {
+		"/rate-limits", "/feed", "/feed/read", "/places/{place}/feed", "/places/{place}/feed/read", "/topics/{topicID}/vote"} {
 		require.Contains(t, paths, p)
 	}
 	servers := spec["servers"].([]any)

@@ -2,10 +2,11 @@
 
 The backend for [Gotalk](../../README.md): a forum-first, self-hostable alternative to Discord.
 This repository implements **Phase 1 (Foundation)**, **Phase 2 (Forum Core)**,
-**Phase 3 (Real-Time Layer)** and **Phase 4 (Voice)** of the
+**Phase 3 (Real-Time Layer)**, **Phase 4 (Voice)**, **Phase 5 (Platform Maturity)** and
+**Phase 6 (Topic Feeds)** of the
 [backend plan](../../docs/backend-plan.md): accounts, places, roles and permissions, invites
-and bans, the first-run setup wizard, boards, topics and posts, full-text search,
-notifications, moderation tools, chat channels and threads, direct and group messages,
+and bans, the first-run setup wizard, boards, topics and posts, ranked topic feeds with
+voting, full-text search, notifications, moderation tools, chat channels and threads, direct and group messages,
 presence, a WebSocket gateway, and voice/video channels routed through a self-hosted
 [LiveKit](https://livekit.io) server, plus the infrastructure to run it anywhere from a
 Raspberry Pi to Kubernetes.
@@ -138,7 +139,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `ratelimit.enabled` | `true` | Enable rate limiting |
 | `ratelimit.default` | `300-M` | Default tier, per user (or per IP when anonymous); a user's personal access tokens share it |
 | `ratelimit.auth` | `10-M` | Login, registration, refresh, setup, and password endpoints |
-| `ratelimit.content` | `30-M` | Creating topics, replies, and reports |
+| `ratelimit.content` | `30-M` | Creating topics, replies, and reports; marking feeds read in bulk |
 | `ratelimit.chat` | `120-M` | Sending chat messages, reacting to them, typing indicators, and starting threads |
 | `log.level` | `info` | `debug`, `info`, `warn`, `error` |
 | `log.format` | `json` | `json` or `text` |
@@ -276,8 +277,14 @@ topics are read-only and hidden from listings unless `archived=true`. Reactions 
 Unicode emoji (URL-encoded in the path) or a shortcode, up to 20 distinct per post.
 `@username` mentions notify the mentioned user if they can see the board.
 
-**Read state, subscriptions, notifications.** `PUT /topics/{id}/read` records how far a user
-has read; authenticated topic listings include `last_read_post_number` and `unread_count`.
+**Read state, subscriptions, notifications.** `PUT /topics/{id}/read` records that the
+caller opened a topic and, with an optional `post_number`, how far they have read (positions
+never move backwards). Authenticated topic responses include a `viewer` object: `read` (opened,
+and not marked unread since), `has_new_replies` (posts arrived after the last open),
+`unread_count`, `last_read_post_number`, `vote` and `subscription`; the older top-level
+`last_read_post_number` and `unread_count` fields remain. `DELETE /topics/{id}/read` marks a
+topic unread again but keeps the position. Read changes reach the user's other sessions as
+`TOPIC_READ_STATE_UPDATE` events. Authors have read their own topics and replies.
 Places, boards and topics can be set to `watching`, `normal` or `muted`. Watching a place
 or board notifies about new topics, and watching a topic notifies about every reply. Authors
 watch their own topics automatically. The most specific setting wins, so watching a topic
@@ -285,6 +292,30 @@ inside a muted place still notifies. Notifications (`mention`, `reply`, `topic_r
 `new_topic`, `reaction`, `solution`, `moderation`, `direct_message`) carry a `data` snapshot
 for rendering and are pushed to the recipient's gateway sessions as they are created.
 Moderation notices ignore mutes.
+
+**Feeds.** `GET /places/{place}/feed` ranks topics from every board of a place the caller
+can read; `GET /feed` does the same across places, with `scope=home` (the caller's places, the
+default when signed in, leaving out muted places, boards and topics) or `scope=all` (public
+content on the instance, the only scope when signed out). `sort` is `hot` (default; score and
+replies weighed against age), `new`, `active` (latest reply), `top`, `rising` (fastest-growing
+topics of the last 48 hours) or `controversial` (many votes split between up and down);
+`top` and `controversial` take a window `t` of `hour`, `day`, `week` (default), `month`,
+`year` or `all`. Filters: `tag`, `solved`, `hide_read` (leave out opened topics without new
+posts), `nsfw` (NSFW boards, and on instance feeds NSFW places, are left out unless true),
+`include_archived`, and on place feeds `board` (a board or category and everything below it)
+and `pinned=first` (pinned topics returned separately on the first page). Items are topics
+plus their `board`, `place`, an `is_nsfw` flag and a plain-text `excerpt` of the opening post.
+Pages are cursor-based: pass `next_cursor` back as `cursor` with the same parameters. A cursor
+fixes the time the first page was loaded (`as_of`), so windows do not slide while paging. Keys
+that change while someone pages (such as scores on `hot` and `top`) can move a topic across
+the cursor, so clients should drop duplicate IDs. Members vote with
+`PUT /topics/{id}/vote` (`{"value": 1}` or `-1`, needs `ADD_REACTIONS`, not on their own
+topics) and `DELETE /topics/{id}/vote`. Places can turn voting off (`voting_enabled`), and
+feeds then rank by the reactions on each opening post. `POST /feed/read` records up to 100
+opens at once (offline replay, or importing what someone read while signed out), skipping
+topics the caller cannot see. `POST /places/{place}/feed/read` marks a place (or a `board_id`)
+read up to `before`, usually the feed's `as_of`, touching at most the 5000 most recently
+active topics.
 
 **Search.** `GET /search` searches everything signed-out visitors can read across the
 instance; `GET /places/{place}/search` searches every board the caller can read. Queries use
@@ -408,6 +439,7 @@ frame is a JSON object with an `op`, plus `d` (data) and, for events, `t` (type)
 | `CHANNEL_CREATE`, `CHANNEL_UPDATE`, `CHANNEL_DELETE` | Everyone who can see the channel (conversation participants for DMs) |
 | `CHANNEL_RECIPIENT_ADD`, `CHANNEL_RECIPIENT_REMOVE` | Group conversation participants |
 | `CHANNEL_READ` | The reader's other sessions |
+| `TOPIC_READ_STATE_UPDATE` | The reader's sessions: `topics` lists changed read states; after marking a place read it is empty, with `all: true`, `place_id`, `board_id` and `before` |
 | `READ_RECEIPT` | The other participants of a direct conversation |
 | `NOTIFICATION_CREATE` | The notified user (forum and chat notifications) |
 | `PRESENCE_UPDATE` | Members of the user's places and their conversation partners |
@@ -447,7 +479,8 @@ Sessions cannot be resumed; after reconnecting, clients refetch what they need w
 | Roles | `GET/POST /places/{place}/roles`, `PATCH/DELETE /places/{place}/roles/{roleID}` |
 | Invites | `GET/POST /places/{place}/invites`, `DELETE /places/{place}/invites/{code}`, `GET/POST /invites/{code}` |
 | Boards | `GET/POST /places/{place}/boards`, `GET/PATCH/DELETE /boards/{boardID}`, `GET /boards/{boardID}/overwrites`, `PUT/DELETE /boards/{boardID}/overwrites/{roleID}`, `PUT /boards/{boardID}/subscription` |
-| Topics | `GET/POST /boards/{boardID}/topics`, `GET /places/{place}/topics`, `GET /places/{place}/tags`, `GET/PATCH/DELETE /topics/{topicID}`, `PUT/DELETE /topics/{topicID}/solution`, `PUT /topics/{topicID}/read`, `PUT /topics/{topicID}/subscription` |
+| Topics | `GET/POST /boards/{boardID}/topics`, `GET /places/{place}/topics`, `GET /places/{place}/tags`, `GET/PATCH/DELETE /topics/{topicID}`, `PUT/DELETE /topics/{topicID}/solution`, `PUT/DELETE /topics/{topicID}/read`, `PUT/DELETE /topics/{topicID}/vote`, `PUT /topics/{topicID}/subscription` |
+| Feeds | `GET /places/{place}/feed`, `GET /feed`, `POST /places/{place}/feed/read`, `POST /feed/read` |
 | Posts | `GET/POST /topics/{topicID}/posts`, `GET/PATCH/DELETE /posts/{postID}`, `GET /posts/{postID}/revisions`, `GET/PUT/DELETE /posts/{postID}/reactions/{emoji}` |
 | Search | `GET /search`, `GET /places/{place}/search` |
 | Notifications | `GET /users/@me/notifications`, `GET …/notifications/unread-count`, `POST …/notifications/read-all`, `POST …/notifications/{id}/read`, `DELETE …/notifications/{id}`, `PUT /places/{place}/subscription` |

@@ -403,6 +403,13 @@ func (s *Service) deactivateUser(ctx context.Context, q *store.Queries, userID u
 		return err
 	}
 	// Posts and messages stay (attributed to a deleted account); personal activity is erased.
+	voted, err := q.RemoveUserTopicVotes(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.refreshRanks(ctx, q, voted...); err != nil {
+		return err
+	}
 	for _, erase := range []func(context.Context, uuid.UUID) error{
 		q.RemoveUserReactions, q.DeleteUserNotifications, q.DeleteUserSubscriptions,
 		q.DeleteUserDrafts, q.DeleteUserTopicReads, q.RemoveUserMessageReactions,

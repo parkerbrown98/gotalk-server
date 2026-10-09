@@ -32,6 +32,9 @@ const (
 	EventVoiceStateUpdate   = "VOICE_STATE_UPDATE"
 	EventVoiceServerUpdate  = "VOICE_SERVER_UPDATE"
 	EventVoiceSpeaking      = "VOICE_SPEAKING"
+	// EventTopicReadStateUpdate syncs a user's forum read state (opened topics, positions)
+	// between their sessions.
+	EventTopicReadStateUpdate = "TOPIC_READ_STATE_UPDATE"
 )
 
 // Event is a real-time update for gateway clients. Data is a service view (or a plain map)

@@ -83,13 +83,19 @@ GROUP BY tag
 ORDER BY count(*) DESC, tag
 LIMIT @lim;
 
--- name: MarkTopicRead :exec
-INSERT INTO topic_reads (user_id, topic_id, last_read_post_number)
-VALUES (@user_id, @topic_id, @post_number)
+-- name: MarkTopicRead :one
+-- Records an open of the topic and advances the read position (never backwards).
+-- seen_post_number is the topic's last post number at this open.
+INSERT INTO topic_reads (user_id, topic_id, last_read_post_number, opened_at, first_opened_at, seen_post_number)
+VALUES (@user_id, @topic_id, @post_number, now(), now(), @seen_post_number)
 ON CONFLICT (user_id, topic_id) DO UPDATE
 SET last_read_post_number = GREATEST(topic_reads.last_read_post_number, EXCLUDED.last_read_post_number),
-    updated_at            = now();
+    opened_at             = now(),
+    first_opened_at       = COALESCE(topic_reads.first_opened_at, now()),
+    seen_post_number      = GREATEST(topic_reads.seen_post_number, EXCLUDED.seen_post_number),
+    updated_at            = now()
+RETURNING *;
 
 -- name: ListTopicReads :many
-SELECT topic_id, last_read_post_number FROM topic_reads
+SELECT topic_id, last_read_post_number, opened_at, seen_post_number FROM topic_reads
 WHERE user_id = @user_id AND topic_id = ANY(@topic_ids::uuid[]);

@@ -47,6 +47,19 @@ type Features struct {
 	Webhooks     bool   `json:"webhooks" doc:"Places can send signed events to external URLs"`
 	Policies     bool   `json:"policies" doc:"Versioned policy documents and consent records"`
 	Transparency bool   `json:"transparency" doc:"Moderation statistics at /transparency"`
+	Feed         bool   `json:"feed" doc:"Ranked topic feeds per place (/places/{place}/feed) and instance-wide (/feed)"`
+	TopicVotes   bool   `json:"topic_votes" doc:"Topics can be voted up and down (places can turn it off)"`
+}
+
+type FeedInfo struct {
+	Sorts            []string `json:"sorts" doc:"Supported sort orders, default first"`
+	Windows          []string `json:"windows" doc:"Time windows of the top and controversial sorts"`
+	DefaultWindow    string   `json:"default_window"`
+	PageSize         int      `json:"page_size" doc:"Default items per page"`
+	MaxPageSize      int      `json:"max_page_size"`
+	ReadBatch        int      `json:"read_batch" doc:"Most topic IDs one POST /feed/read accepts"`
+	MarkAllReadLimit int      `json:"mark_all_read_limit" doc:"Most topics one mark-all-read call touches"`
+	ExcerptLength    int      `json:"excerpt_length"`
 }
 
 type Policies struct {
@@ -93,6 +106,7 @@ type Instance struct {
 	Policies         Policies             `json:"policies"`
 	Limits           Limits               `json:"limits"`
 	Webhooks         WebhookInfo          `json:"webhooks"`
+	Feed             FeedInfo             `json:"feed"`
 	Stats            Stats                `json:"stats"`
 }
 
@@ -151,6 +165,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		Features: Features{
 			Forums: true, Chat: true, Voice: s.Service.VoiceEnabled(), Search: "postgres",
 			APITokens: true, Bots: true, Webhooks: true, Policies: true, Transparency: true,
+			Feed: true, TopicVotes: true,
 		},
 		RateLimits: limits,
 		Policies:   policies,
@@ -162,6 +177,11 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		},
 		Webhooks: WebhookInfo{
 			Events: service.WebhookEvents(), SignatureHeader: service.HeaderSignature, MaxAttempts: service.MaxWebhookAttempts,
+		},
+		Feed: FeedInfo{
+			Sorts: service.FeedSorts, Windows: service.FeedWindows, DefaultWindow: service.DefaultFeedWindow,
+			PageSize: service.DefaultFeedPageSize, MaxPageSize: service.MaxFeedPageSize, ReadBatch: service.MaxFeedReadBatch,
+			MarkAllReadLimit: service.MaxMarkAllRead, ExcerptLength: service.ExcerptLength,
 		},
 		Stats: Stats{Users: stats.Users, Places: stats.Places},
 	}, nil

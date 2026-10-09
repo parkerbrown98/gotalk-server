@@ -114,6 +114,8 @@ type Place struct {
 	OwnerID     string    `json:"owner_id" format:"uuid"`
 	MemberCount int32     `json:"member_count"`
 	CreatedAt   time.Time `json:"created_at"`
+	// VotingEnabled turns topic votes (and the controversial feed sort) on.
+	VotingEnabled bool `json:"voting_enabled" doc:"Topics can be voted up and down; when off, feeds rank by reactions on opening posts"`
 	// MyPermissions is present only when the caller is a member.
 	MyPermissions *int64 `json:"my_permissions,omitempty" doc:"Caller's effective permission bits; present only for members"`
 }
@@ -132,6 +134,8 @@ func toPlace(p store.Place) Place {
 		OwnerID:     p.OwnerID.String(),
 		MemberCount: p.MemberCount,
 		CreatedAt:   p.CreatedAt,
+
+		VotingEnabled: p.VotingEnabled,
 	}
 }
 

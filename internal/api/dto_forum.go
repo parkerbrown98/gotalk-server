@@ -92,10 +92,23 @@ type Topic struct {
 	LastPostAt     time.Time `json:"last_post_at"`
 	LastPoster     *User     `json:"last_poster"`
 	CreatedAt      time.Time `json:"created_at"`
+	Score          int32     `json:"score" doc:"Up minus down votes, or reactions on the opening post when the place has voting off"`
+	Upvotes        int32     `json:"upvotes"`
+	Downvotes      int32     `json:"downvotes"`
 	// Caller state, present only for authenticated requests.
-	LastReadPostNumber *int32  `json:"last_read_post_number,omitempty"`
-	UnreadCount        *int32  `json:"unread_count,omitempty" doc:"Posts after the caller's read position"`
-	Subscription       *string `json:"subscription,omitempty" enum:"watching,normal,muted"`
+	LastReadPostNumber *int32       `json:"last_read_post_number,omitempty"`
+	UnreadCount        *int32       `json:"unread_count,omitempty" doc:"Posts after the caller's read position"`
+	Subscription       *string      `json:"subscription,omitempty" enum:"watching,normal,muted"`
+	Viewer             *TopicViewer `json:"viewer,omitempty" doc:"The caller's state; present only for authenticated requests"`
+}
+
+type TopicViewer struct {
+	Read               bool   `json:"read" doc:"The caller has opened this topic and not marked it unread since"`
+	HasNewReplies      bool   `json:"has_new_replies" doc:"Posts arrived after the caller last opened the topic"`
+	UnreadCount        int32  `json:"unread_count" doc:"Posts after the caller's read position"`
+	LastReadPostNumber *int32 `json:"last_read_post_number" doc:"How far the caller has read; null if never"`
+	Vote               int16  `json:"vote" doc:"The caller's vote: 1, -1, or 0 for none"`
+	Subscription       string `json:"subscription" enum:"watching,normal,muted"`
 }
 
 func toTopic(v service.TopicView) Topic {
@@ -106,6 +119,7 @@ func toTopic(v service.TopicView) Topic {
 		IsArchived: t.IsArchived, SolutionPostID: idString(t.SolutionPostID), PostCount: t.PostCount,
 		ReplyCount: max(t.PostCount-1, 0), LastPostNumber: t.LastPostNumber, LastPostAt: t.LastPostAt,
 		LastPoster: userPtr(v.LastPoster), CreatedAt: t.CreatedAt,
+		Score: t.Score, Upvotes: t.Upvotes, Downvotes: t.Downvotes,
 	}
 	if out.Tags == nil {
 		out.Tags = []string{}
@@ -120,6 +134,10 @@ func toTopic(v service.TopicView) Topic {
 		}
 		unread := max(t.LastPostNumber-read, 0)
 		out.UnreadCount = &unread
+		out.Viewer = &TopicViewer{
+			Read: v.Opened, HasNewReplies: v.HasNewReplies(), UnreadCount: unread,
+			LastReadPostNumber: v.LastReadPostNumber, Vote: v.Vote, Subscription: sub,
+		}
 	}
 	return out
 }
