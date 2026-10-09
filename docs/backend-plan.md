@@ -108,12 +108,50 @@ it just needs to describe itself well enough that a generic client can configure
 - Best-answer / solution marking for Q&A-style boards
 - Draft saving and scheduled publishing
 - Topic subscriptions / watch & mute
-- Read/unread tracking per user per topic
+- Read/unread tracking per user per topic, including whether the person has opened a topic at all
+- Topic feeds (Reddit-style) per Place and instance-wide, with votes and several sort orders (see the
+  *Topic feeds* subsection below)
 - Full post quoting and mentions (@user, #topic, board links)
 - Attachments (images, files) with size/type restrictions per Place
 - Soft-delete with tombstones (preserve thread structure when a post is removed)
 
-**Entities:** `Board`, `Topic`, `Post`, `PostRevision`, `Reaction`, `Attachment`, `ReadState`, `Subscription`
+**Entities:** `Board`, `Topic`, `Post`, `PostRevision`, `Reaction`, `Attachment`, `ReadState`, `Subscription`, `TopicVote`, `TopicFeedStats`, `TopicOpen`
+
+### Topic feeds
+
+A feed is a ranked, cursor-paged list of topics, shown Reddit-style: title, excerpt, board, author, score,
+reply count, tags and state badges. Two scopes share one implementation:
+
+- **Place feed** (`GET /places/{place}/feed`): topics from every board the caller can read, optionally
+  narrowed to one or more boards or tags.
+- **Instance feed** (`GET /feed`): `scope=home` (default when signed in) merges the places the caller has
+  joined; `scope=all` covers public content across the instance and is the only scope for signed-out
+  callers. Each item carries its place so clients can label it.
+
+**Sort orders** (`sort=`):
+
+| Sort | Meaning |
+|---|---|
+| `hot` (default) | score and replies weighed against age, so fresh discussion beats stale popularity |
+| `new` | newest topic first |
+| `active` | latest reply first (classic forum order) |
+| `top` | highest score, with a window `t=hour\|day\|week\|month\|year\|all` |
+| `rising` | recent topics gaining votes and replies fastest (last 48 hours) |
+| `controversial` | many votes that are split between up and down, with the same window as `top` |
+
+Filters: `board`, `tag`, `solved` / `unsolved`, `hide_read`, `nsfw` (excluded by default) and
+`include_archived`. Pinned topics can be returned first on a place feed (`pinned=first`).
+
+**Voting:** each person has one up or down vote per topic (changeable and removable). Own topics cannot be
+voted on. Score is `up − down`. A place setting turns voting
+off, in which case scores fall back to the existing reaction counts and `controversial` is unavailable.
+
+**Read tracking:** a topic is *read* once the person has opened it, which is different from the existing
+`ReadState` position (how far through the posts they got). Feed items carry a `viewer` object with `read`,
+`has_new_replies` (replies posted after the last open), `unread_count`, `vote` and the last read post
+number, so a client can dim opened topics and badge the ones that gained replies. Read state can be set
+explicitly (open, mark unread, mark a batch or a whole feed as read) and is pushed to the person's other
+sessions over the gateway. Signed-out callers get no `viewer` object; clients keep their own local record.
 
 ## 4. Search & Discoverability
 
@@ -300,7 +338,10 @@ these true from the same binary.
    **✅ Implemented**; see *Phase 4 status* below.
 5. **Platform Maturity:** Public API + rate limiting, webhooks/bots, transparency/policy endpoints, instance
    metadata/capability-negotiation endpoints. **✅ Implemented**; see *Phase 5 status* below.
-6. **Self-Hosting & Cloud Polish:** Full wizard (non-interactive mode, pre-flight checks, reconfigure flow),
+6. **Topic Feeds:** Reddit-style feeds over forum topics for a Place and for the whole instance, topic
+   votes, hot/new/active/top/rising/controversial sorting, cursor paging, and per-user "read" tracking so
+   clients can show which topics were already opened. **Planned**; see *Phase 6 plan* below.
+7. **Self-Hosting & Cloud Polish:** Full wizard (non-interactive mode, pre-flight checks, reconfigure flow),
    configurable CORS/allowed-origins, Helm chart/k8s manifests, managed-dependency support, backup/restore,
    storage/mail provider plugins.
 
@@ -323,10 +364,10 @@ Delivered:
   discovery, liveness/readiness probes, advisory-locked migrations, graceful shutdown, configurable CORS,
   trusted-proxy handling, 12-factor config with `_FILE` secrets, Docker Compose quick start,
   distroless multi-arch image, and a CI pipeline (lint, sqlc drift check, race-enabled tests, image publish).
-- Some items listed under Phase 5 and 6 landed early because they were cheap and foundational: instance
+- Some items listed under Phase 5 and 7 landed early because they were cheap and foundational: instance
   metadata/capability endpoints, API rate limiting, and configurable CORS.
 
-Deferred from section 1 to later phases, mostly because they depend on outbound email (Phase 6
+Deferred from section 1 to later phases, mostly because they depend on outbound email (Phase 7
 mail providers): email verification, password reset, OAuth/OIDC login, MFA, captcha hooks, and username
 history.
 
@@ -363,9 +404,9 @@ Delivered in [`repos/gotalk-server`](../repos/gotalk-server/README.md):
 Deferred from sections 3, 4, 7 and 8:
 
 - **Attachments** (the `ATTACH_FILES` bit is reserved): needs the storage backends and media pipeline
-  (Phase 6 / section 12).
+  (Phase 7 / section 12).
 - **Scheduled publishing, email digests, and push notifications:** need the background job runner and
-  mail/push providers (Phase 6). Notifications are fanned out synchronously; since Phase 3 they are
+  mail/push providers (Phase 7). Notifications are fanned out synchronously; since Phase 3 they are
   also pushed in real time over the gateway.
 - **SEO rendering** (OpenGraph/JSON-LD pages, sitemaps): belongs to the web client. The API already
   provides the readable slugs and anonymous read access it needs.
@@ -419,7 +460,7 @@ Deferred from section 5:
 
 - **Slash-command bot hooks:** belong with the bot account framework and outgoing webhooks (Phase 5).
 - **Link unfurling and inline media previews:** need the background job runner for safe, rate-limited
-  outbound fetches, plus the media pipeline (Phase 6). Attachments remain deferred for the same reason.
+  outbound fetches, plus the media pipeline (Phase 7). Attachments remain deferred for the same reason.
 - **Gateway session resume:** clients reconnect and catch up with `GET …/messages?after=<last ID>`. A
   replayable event log can be added later without changing event payloads.
 - **Chat message search and DM reporting:** search remains forum-only. Reports are Place-scoped, so
@@ -468,7 +509,7 @@ Delivered in [`repos/gotalk-server`](../repos/gotalk-server/README.md):
 
 Deferred from section 6:
 
-- **Recording and transcription hooks:** need LiveKit Egress, object storage for the output (Phase 6 storage
+- **Recording and transcription hooks:** need LiveKit Egress, object storage for the output (Phase 7 storage
   backends) and a consent/notice flow; the room-per-channel design leaves room for an Egress trigger later.
 - **Voice in direct messages (calls):** voice is limited to place channels for now; DM calls need ringing and
   call-invitation flows on top of the same token and state machinery.
@@ -526,7 +567,7 @@ Deferred from sections 9 and 10:
   and redirect handling. Personal access tokens and bots cover scripts and integrations meanwhile, and
   `api_tokens` scopes are the vocabulary OAuth grants would reuse.
 - **Data export and retention policies:** building export archives and enforcing retention windows need
-  the background job runner and object storage (Phase 6). Account erasure already exists.
+  the background job runner and object storage (Phase 7). Account erasure already exists.
 - **HTTP interaction endpoints and interaction persistence:** bots receive commands over the gateway only;
   sending interactions to an application URL (reusing the webhook signer) and replaying them to bots that
   were offline can follow.
@@ -534,3 +575,70 @@ Deferred from sections 9 and 10:
   cursor conventions.
 - **Account deletion events:** deleting an account (or an application's bot) does not send `member.leave`
   webhooks or gateway `PLACE_LEAVE` events for each place, matching the existing deletion behavior.
+
+### Phase 6 plan
+
+Goal: a Reddit-style feed of forum topics for a single Place and for the whole instance, sortable several
+ways, where each person's opened topics are remembered. It builds on the Phase 2 topics, reactions and read
+state, so it needs no new infrastructure (the background job runner from Phase 7 is deliberately not required).
+
+Scope:
+
+- **Feed endpoints:**
+  - `GET /places/{place}/feed` and `GET /feed` (`scope=home|all`), with `sort`, `t`, `board`, `tag`,
+    `solved`/`unsolved`, `hide_read`, `nsfw`, `include_archived`, `pinned=first` and `limit`
+  - cursor paging with an opaque cursor that encodes the sort key and the topic ID, so items do not shift or
+    repeat while someone scrolls, unlike the offset paging used elsewhere
+  - anonymous access for public Places and `scope=all`; the visible boards are resolved with the existing
+    permission resolver for a Place, and by the derived `is_public` flag for instance-wide results (the
+    same rule search uses), so private boards never leak
+  - muted boards, topics and Places are left out of `scope=home`; moderator-removed and soft-deleted topics
+    are never returned, and archived ones only on request
+- **Feed item shape:** the topic summary plus the board, the Place (instance feed), the author, a plain-text
+  excerpt of the opening post (about 280 characters, no Markdown or HTML), score and vote counts, reply count,
+  last activity, tags, pinned/locked/solved/NSFW flags and the `viewer` object (`read`, `has_new_replies`,
+  `unread_count`, `vote`, `last_read_post_number`). The viewer object is omitted when signed out.
+- **Votes (`TopicVote`):** `PUT /topics/{id}/vote` with `{"value": 1 | -1}` and `DELETE /topics/{id}/vote`;
+  one vote per user and topic, no voting on one's own topic, rate-limited, reversible, and gated by a
+  `voting_enabled` Place setting (default on). Voting follows the existing forum reaction permission rather than
+  adding a permission bit. Account deletion removes a person's votes and recomputes the affected scores.
+- **Ranking (`TopicFeedStats`):** one row per topic with `up`, `down`, `score`, `reply_count`, `last_activity_at`,
+  `hot_rank` and `controversy`, updated in the same transaction as each vote, reply, deletion or move.
+  - `hot_rank` uses a time-independent formula (`sign(s)·log10(max(|s|, 1)) + created_at / 45000`, with `s`
+    being the score plus a damped reply weight), so the stored value stays comparable as time passes and no
+    periodic recomputation is needed
+  - `new`, `active`, `top` and `controversial` sort on indexed columns, with `top` and `controversial`
+    narrowed by the `t` window
+  - `rising` is computed at query time over a bounded 48-hour candidate set from vote and reply velocity
+  - indexes are per Place (`place_id`, sort key, `topic_id`); the home feed merges the member Places' pages
+    with a capped candidate window per Place
+  - pinned topics keep a separate ordering so `pinned=first` costs nothing on other sorts
+- **Read tracking (`TopicOpen`):**
+  - `PUT /topics/{id}/read` records that the person opened the topic (sets `first_opened_at` on the first call,
+    refreshes `last_opened_at` and snapshots the reply count at that moment). It is idempotent and cheap, and
+    the client calls it when a topic is opened, never when it merely scrolls past in a feed
+  - `DELETE /topics/{id}/read` marks a topic as unread again
+  - `POST /feed/read` takes up to 100 topic IDs (for a client replaying offline opens);
+    `POST /places/{place}/feed/read` marks everything in a Place or board read, up to an optional `before`
+    cursor, so "mark all as read" matches what the person saw
+  - `has_new_replies` is derived by comparing the current reply count with the snapshot from the last open,
+    so a topic that was opened and then gained replies is read, but flagged
+  - advancing the existing `ReadState` position of a topic also records an open, so topics opened through
+    search, a notification or a link count as read without a separate call
+  - a `TOPIC_READ_STATE_UPDATE` gateway event syncs the person's other sessions, like chat read state
+  - rows are scrubbed on account deletion and removed with their topic; reads older than a configurable
+    retention period (a year by default) are pruned lazily on write
+- **Capability negotiation:** `/instance` advertises `features.feed` and `features.topic_votes`, the supported
+  `sorts`, and the limits (page size, batch size for `POST /feed/read`).
+- **Tests:** ranking order for every sort and window, cursor stability while scores change, visibility
+  (private boards, muted places, anonymous callers, deleted and archived topics), vote rules and score
+  recomputation, read/unread/new-replies transitions, bulk mark-read, and gateway sync. A seed script produces a
+  large synthetic Place to check query plans and the `rising` candidate cap.
+
+Deferred:
+
+- Comment (post) votes, vote-based karma and trust levels, and downvote thresholds that hide topics.
+- Personalized or learned ranking, saved topics, and custom feeds that combine chosen Places or boards.
+- Media thumbnails and link previews in feed items (they need attachments from Phase 7).
+- Live feed updates over the gateway ("N new topics"); clients poll or refetch on focus until then.
+- Per-board default sort and per-Place feed customization beyond `voting_enabled`.
