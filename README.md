@@ -64,6 +64,11 @@ Webhooks are optional: without them Gotalk polls LiveKit every 30 seconds.
 
 ## Running the binary
 
+Prebuilt binaries (Linux, macOS and Windows) are attached to each
+[GitHub release](https://github.com/parkerbrown98/gotalk-server/releases), with a
+`checksums.txt` for verification. Tags with a suffix such as `v0.1.0-beta.1` are published as
+pre-releases. Or build from source:
+
 ```sh
 go build -o gotalk ./cmd/gotalk
 GOTALK_DATABASE_URL="host=localhost user=gotalk dbname=gotalk sslmode=disable" PGPASSWORD=… ./gotalk serve
