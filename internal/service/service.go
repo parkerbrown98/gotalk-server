@@ -44,6 +44,8 @@ type Service struct {
 	encoder     atomic.Pointer[Encoder]
 	webhookWake chan struct{}
 	mailWake    chan struct{}
+	// links fetches link previews in the background.
+	links linkResolver
 }
 
 // txState is the work a transaction defers until it commits.

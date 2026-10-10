@@ -100,7 +100,7 @@ SET last_read_post_number = GREATEST(topic_reads.last_read_post_number, EXCLUDED
     updated_at            = now();
 
 -- name: ListOpeningPosts :many
-SELECT topic_id, content FROM posts WHERE topic_id = ANY(@topic_ids::uuid[]) AND post_number = 1;
+SELECT id, topic_id, content FROM posts WHERE topic_id = ANY(@topic_ids::uuid[]) AND post_number = 1;
 
 -- name: ListBoardsForPlaces :many
 SELECT * FROM boards WHERE place_id = ANY(@place_ids::uuid[]) ORDER BY place_id, position, created_at;

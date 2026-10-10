@@ -23,8 +23,8 @@ RETURNING config_revision;
 SELECT config_revision FROM instance_settings WHERE id = 1;
 
 -- name: CreateUpload :one
-INSERT INTO uploads (id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height)
-VALUES (@id, @storage_key, @url, @purpose, @uploader_id, @content_type, @size_bytes, @width, @height)
+INSERT INTO uploads (id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, filename)
+VALUES (@id, @storage_key, @url, @purpose, @uploader_id, @content_type, @size_bytes, @width, @height, @filename)
 RETURNING *;
 
 -- name: GetUploadByKey :one
@@ -37,8 +37,9 @@ SELECT * FROM uploads WHERE url = @url ORDER BY created_at DESC LIMIT 1;
 DELETE FROM uploads WHERE id = @id;
 
 -- name: ListUnreferencedUploads :many
--- Uploads older than @before whose URL no entity uses any more (replaced or cleared
--- images, deleted accounts). One anti-join scans each referencing table once.
+-- Uploads older than @before that nothing uses any more: replaced or cleared images,
+-- deleted accounts, attachments never sent or whose message or post was deleted, and
+-- link preview images that were replaced. One anti-join scans each referencing table once.
 SELECT u.* FROM uploads u
 WHERE u.created_at < @before
   AND NOT EXISTS (
@@ -51,6 +52,14 @@ WHERE u.created_at < @before
       ) refs
       WHERE refs.url = u.url
   )
+  AND NOT EXISTS (
+      SELECT 1 FROM (
+          SELECT upload_id AS id FROM message_attachments
+          UNION ALL SELECT upload_id FROM post_attachments
+          UNION ALL SELECT image_upload_id FROM link_previews WHERE image_upload_id IS NOT NULL
+      ) owned
+      WHERE owned.id = u.id
+  )
 ORDER BY u.created_at
 LIMIT @lim;
 
@@ -58,7 +67,11 @@ LIMIT @lim;
 SELECT (EXISTS (SELECT 1 FROM users WHERE avatar_url = @url::text)
     OR EXISTS (SELECT 1 FROM places WHERE icon_url = @url::text OR banner_url = @url::text)
     OR EXISTS (SELECT 1 FROM instance_settings WHERE icon_url = @url::text)
-    OR EXISTS (SELECT 1 FROM applications WHERE icon_url = @url::text))::boolean AS referenced;
+    OR EXISTS (SELECT 1 FROM applications WHERE icon_url = @url::text)
+    OR EXISTS (SELECT 1 FROM uploads u WHERE u.url = @url::text AND (
+        EXISTS (SELECT 1 FROM message_attachments WHERE upload_id = u.id)
+        OR EXISTS (SELECT 1 FROM post_attachments WHERE upload_id = u.id)
+        OR EXISTS (SELECT 1 FROM link_previews WHERE image_upload_id = u.id))))::boolean AS referenced;
 
 -- name: CountUploads :one
 SELECT count(*) AS uploads, COALESCE(sum(size_bytes), 0)::bigint AS bytes FROM uploads;

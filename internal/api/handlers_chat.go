@@ -102,13 +102,14 @@ type ListMessagesInput struct {
 }
 
 type SendMessageRequest struct {
-	Content   string `json:"content" minLength:"1" maxLength:"4000" doc:"Markdown; @username mentions notify"`
-	ReplyToID string `json:"reply_to_id,omitempty" format:"uuid" doc:"Reply to a message in the same channel; notifies its author"`
-	Nonce     string `json:"nonce,omitempty" maxLength:"64" doc:"Echoed on the response and MESSAGE_CREATE event so clients can match optimistic messages"`
+	Content       string   `json:"content,omitempty" maxLength:"4000" doc:"Markdown; @username mentions notify. May be empty when attachment_ids is set"`
+	ReplyToID     string   `json:"reply_to_id,omitempty" format:"uuid" doc:"Reply to a message in the same channel; notifies its author"`
+	Nonce         string   `json:"nonce,omitempty" maxLength:"64" doc:"Echoed on the response and MESSAGE_CREATE event so clients can match optimistic messages"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" maxItems:"10" doc:"Files from POST /attachments, in display order"`
 }
 
 type EditMessageRequest struct {
-	Content string `json:"content" minLength:"1" maxLength:"4000"`
+	Content string `json:"content" maxLength:"4000" doc:"May be empty when the message has attachments"`
 }
 
 type OpenDMRequest struct {
@@ -384,8 +385,12 @@ func (s *Server) registerMessages() {
 			if err != nil {
 				return nil, err
 			}
+			files, err := parseAttachmentIDs(in.Body.AttachmentIDs)
+			if err != nil {
+				return nil, err
+			}
 			m, err := s.Service.SendMessage(ctx, mustPrincipal(ctx), id, service.SendMessageInput{
-				Content: in.Body.Content, ReplyToID: reply, Nonce: in.Body.Nonce,
+				Content: in.Body.Content, ReplyToID: reply, Nonce: in.Body.Nonce, AttachmentIDs: files,
 			})
 			if err != nil {
 				return nil, err

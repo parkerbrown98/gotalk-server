@@ -42,9 +42,9 @@ func (q *Queries) CountUploads(ctx context.Context) (CountUploadsRow, error) {
 }
 
 const createUpload = `-- name: CreateUpload :one
-INSERT INTO uploads (id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at
+INSERT INTO uploads (id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, filename)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at, filename
 `
 
 type CreateUploadParams struct {
@@ -57,6 +57,7 @@ type CreateUploadParams struct {
 	SizeBytes   int64
 	Width       int32
 	Height      int32
+	Filename    string
 }
 
 func (q *Queries) CreateUpload(ctx context.Context, arg CreateUploadParams) (Upload, error) {
@@ -70,6 +71,7 @@ func (q *Queries) CreateUpload(ctx context.Context, arg CreateUploadParams) (Upl
 		arg.SizeBytes,
 		arg.Width,
 		arg.Height,
+		arg.Filename,
 	)
 	var i Upload
 	err := row.Scan(
@@ -83,6 +85,7 @@ func (q *Queries) CreateUpload(ctx context.Context, arg CreateUploadParams) (Upl
 		&i.Width,
 		&i.Height,
 		&i.CreatedAt,
+		&i.Filename,
 	)
 	return i, err
 }
@@ -132,7 +135,7 @@ func (q *Queries) GetConfigRevision(ctx context.Context) (int64, error) {
 }
 
 const getUploadByKey = `-- name: GetUploadByKey :one
-SELECT id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at FROM uploads WHERE storage_key = $1
+SELECT id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at, filename FROM uploads WHERE storage_key = $1
 `
 
 func (q *Queries) GetUploadByKey(ctx context.Context, storageKey string) (Upload, error) {
@@ -149,12 +152,13 @@ func (q *Queries) GetUploadByKey(ctx context.Context, storageKey string) (Upload
 		&i.Width,
 		&i.Height,
 		&i.CreatedAt,
+		&i.Filename,
 	)
 	return i, err
 }
 
 const getUploadByURL = `-- name: GetUploadByURL :one
-SELECT id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at FROM uploads WHERE url = $1 ORDER BY created_at DESC LIMIT 1
+SELECT id, storage_key, url, purpose, uploader_id, content_type, size_bytes, width, height, created_at, filename FROM uploads WHERE url = $1 ORDER BY created_at DESC LIMIT 1
 `
 
 func (q *Queries) GetUploadByURL(ctx context.Context, url string) (Upload, error) {
@@ -171,6 +175,7 @@ func (q *Queries) GetUploadByURL(ctx context.Context, url string) (Upload, error
 		&i.Width,
 		&i.Height,
 		&i.CreatedAt,
+		&i.Filename,
 	)
 	return i, err
 }
@@ -205,7 +210,7 @@ func (q *Queries) ListInstanceConfig(ctx context.Context) ([]InstanceConfig, err
 }
 
 const listUnreferencedUploads = `-- name: ListUnreferencedUploads :many
-SELECT u.id, u.storage_key, u.url, u.purpose, u.uploader_id, u.content_type, u.size_bytes, u.width, u.height, u.created_at FROM uploads u
+SELECT u.id, u.storage_key, u.url, u.purpose, u.uploader_id, u.content_type, u.size_bytes, u.width, u.height, u.created_at, u.filename FROM uploads u
 WHERE u.created_at < $1
   AND NOT EXISTS (
       SELECT 1 FROM (
@@ -217,6 +222,14 @@ WHERE u.created_at < $1
       ) refs
       WHERE refs.url = u.url
   )
+  AND NOT EXISTS (
+      SELECT 1 FROM (
+          SELECT upload_id AS id FROM message_attachments
+          UNION ALL SELECT upload_id FROM post_attachments
+          UNION ALL SELECT image_upload_id FROM link_previews WHERE image_upload_id IS NOT NULL
+      ) owned
+      WHERE owned.id = u.id
+  )
 ORDER BY u.created_at
 LIMIT $2
 `
@@ -226,8 +239,9 @@ type ListUnreferencedUploadsParams struct {
 	Lim    int32
 }
 
-// Uploads older than @before whose URL no entity uses any more (replaced or cleared
-// images, deleted accounts). One anti-join scans each referencing table once.
+// Uploads older than @before that nothing uses any more: replaced or cleared images,
+// deleted accounts, attachments never sent or whose message or post was deleted, and
+// link preview images that were replaced. One anti-join scans each referencing table once.
 func (q *Queries) ListUnreferencedUploads(ctx context.Context, arg ListUnreferencedUploadsParams) ([]Upload, error) {
 	rows, err := q.db.Query(ctx, listUnreferencedUploads, arg.Before, arg.Lim)
 	if err != nil {
@@ -248,6 +262,7 @@ func (q *Queries) ListUnreferencedUploads(ctx context.Context, arg ListUnreferen
 			&i.Width,
 			&i.Height,
 			&i.CreatedAt,
+			&i.Filename,
 		); err != nil {
 			return nil, err
 		}
@@ -263,7 +278,11 @@ const uploadReferenced = `-- name: UploadReferenced :one
 SELECT (EXISTS (SELECT 1 FROM users WHERE avatar_url = $1::text)
     OR EXISTS (SELECT 1 FROM places WHERE icon_url = $1::text OR banner_url = $1::text)
     OR EXISTS (SELECT 1 FROM instance_settings WHERE icon_url = $1::text)
-    OR EXISTS (SELECT 1 FROM applications WHERE icon_url = $1::text))::boolean AS referenced
+    OR EXISTS (SELECT 1 FROM applications WHERE icon_url = $1::text)
+    OR EXISTS (SELECT 1 FROM uploads u WHERE u.url = $1::text AND (
+        EXISTS (SELECT 1 FROM message_attachments WHERE upload_id = u.id)
+        OR EXISTS (SELECT 1 FROM post_attachments WHERE upload_id = u.id)
+        OR EXISTS (SELECT 1 FROM link_previews WHERE image_upload_id = u.id))))::boolean AS referenced
 `
 
 func (q *Queries) UploadReferenced(ctx context.Context, url string) (bool, error) {

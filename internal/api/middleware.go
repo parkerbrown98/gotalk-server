@@ -51,6 +51,7 @@ func (s *Server) requestMeta(next http.Handler) http.Handler {
 		ip, viaProxy := s.clientIP(r)
 		ctx := context.WithValue(r.Context(), clientKey, service.ClientInfo{IP: ip, UserAgent: r.UserAgent()})
 		ctx = context.WithValue(ctx, baseURLKey, s.baseURL(r, viaProxy))
+		ctx = service.WithBaseURL(ctx, s.baseURL(r, viaProxy))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

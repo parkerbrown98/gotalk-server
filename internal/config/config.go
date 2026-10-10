@@ -43,6 +43,7 @@ type Config struct {
 	Storage   storage.Settings `koanf:"storage"`
 	Mail      mail.Settings    `koanf:"mail"`
 	Uploads   Uploads          `koanf:"uploads"`
+	Embeds    Embeds           `koanf:"embeds"`
 
 	// explicit holds the keys set by the config file or the environment (as opposed to
 	// built-in defaults).
@@ -63,10 +64,19 @@ func (c *Config) MarkSet(keys ...string) {
 	}
 }
 
-// Uploads limits files users upload (avatars and icons).
+// Uploads limits files users upload (avatars, icons and attachments).
 type Uploads struct {
 	// MaxSize is the largest accepted upload in bytes.
 	MaxSize int64 `koanf:"max_size"`
+}
+
+// Embeds controls link previews: the server fetches links posted in messages and posts and
+// stores their title, description and preview image.
+type Embeds struct {
+	Enabled bool `koanf:"enabled"`
+	// AllowPrivateNetworks lets previews fetch loopback, private and link-local addresses. Leave it
+	// off in production: it lets users make the server request internal services.
+	AllowPrivateNetworks bool `koanf:"allow_private_networks"`
 }
 
 type Server struct {
@@ -230,6 +240,7 @@ func defaults() map[string]any {
 		"storage.driver":              "local",
 		"storage.local_path":          "data",
 		"uploads.max_size":            8 << 20,
+		"embeds.enabled":              true,
 	}
 }
 

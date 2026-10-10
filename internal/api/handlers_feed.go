@@ -32,10 +32,13 @@ type FeedPlace struct {
 // FeedItem is a topic plus what a feed card needs to show it.
 type FeedItem struct {
 	Topic
-	Excerpt string    `json:"excerpt" doc:"Plain text from the opening post (no Markdown or HTML), at most 280 characters"`
-	Board   FeedBoard `json:"board"`
-	Place   FeedPlace `json:"place"`
-	IsNSFW  bool      `json:"is_nsfw" doc:"The board, one of its parents, or the place is marked NSFW"`
+	Excerpt    string       `json:"excerpt" doc:"Plain text from the opening post (no Markdown or HTML), at most 280 characters"`
+	Images     []Attachment `json:"images" doc:"Up to 4 image attachments of the opening post"`
+	ImageCount int          `json:"image_count" doc:"How many images the opening post has in total"`
+	Embed      *Embed       `json:"embed" doc:"The first link preview of the opening post"`
+	Board      FeedBoard    `json:"board"`
+	Place      FeedPlace    `json:"place"`
+	IsNSFW     bool         `json:"is_nsfw" doc:"The board, one of its parents, or the place is marked NSFW"`
 }
 
 type FeedPage struct {
@@ -48,16 +51,23 @@ type FeedPage struct {
 }
 
 func toFeedItem(it service.FeedItem) FeedItem {
-	return FeedItem{
-		Topic:   toTopic(it.Topic),
-		Excerpt: it.Excerpt,
-		Board:   FeedBoard{ID: it.Board.ID.String(), Slug: it.Board.Slug, Name: it.Board.Name, IsNSFW: it.Board.IsNsfw},
+	out := FeedItem{
+		Topic:      toTopic(it.Topic),
+		Excerpt:    it.Excerpt,
+		Images:     mapSlice(it.Images, toAttachment),
+		ImageCount: it.ImageCount,
+		Board:      FeedBoard{ID: it.Board.ID.String(), Slug: it.Board.Slug, Name: it.Board.Name, IsNSFW: it.Board.IsNsfw},
 		Place: FeedPlace{
 			ID: it.Place.ID.String(), Slug: it.Place.Slug, Name: it.Place.Name, IconURL: it.Place.IconUrl,
 			IsNSFW: it.Place.IsNsfw, VotingEnabled: it.Place.VotingEnabled,
 		},
 		IsNSFW: it.IsNSFW,
 	}
+	if it.Embed != nil {
+		e := toEmbed(*it.Embed)
+		out.Embed = &e
+	}
+	return out
 }
 
 func toFeedPage(p service.FeedPage) FeedPage {

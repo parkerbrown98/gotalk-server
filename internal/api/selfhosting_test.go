@@ -541,7 +541,7 @@ func TestBackupAndRestore(t *testing.T) {
 		Version: "test", Storage: src, MediaPrefixes: service.MediaPrefixes(),
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 7, m.SchemaVersion)
+	require.EqualValues(t, 8, m.SchemaVersion)
 	require.EqualValues(t, 1, counts.MediaFiles)
 	require.EqualValues(t, 2, counts.Rows["users"])
 	require.EqualValues(t, 2, counts.Rows["posts"])

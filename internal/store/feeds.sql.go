@@ -961,10 +961,11 @@ func (q *Queries) ListMemberRolesForPlaces(ctx context.Context, arg ListMemberRo
 }
 
 const listOpeningPosts = `-- name: ListOpeningPosts :many
-SELECT topic_id, content FROM posts WHERE topic_id = ANY($1::uuid[]) AND post_number = 1
+SELECT id, topic_id, content FROM posts WHERE topic_id = ANY($1::uuid[]) AND post_number = 1
 `
 
 type ListOpeningPostsRow struct {
+	ID      uuid.UUID
 	TopicID uuid.UUID
 	Content string
 }
@@ -978,7 +979,7 @@ func (q *Queries) ListOpeningPosts(ctx context.Context, topicIds []uuid.UUID) ([
 	items := []ListOpeningPostsRow{}
 	for rows.Next() {
 		var i ListOpeningPostsRow
-		if err := rows.Scan(&i.TopicID, &i.Content); err != nil {
+		if err := rows.Scan(&i.ID, &i.TopicID, &i.Content); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

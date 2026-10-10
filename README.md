@@ -133,7 +133,7 @@ All commands accept `--config path/to/gotalk.yaml` (alias `--from-file`).
 Both are plugins chosen by name, configured in the setup wizard, the settings page, the
 config file or the environment.
 
-**Storage** keeps uploaded images (and backups made with `backup --upload`):
+**Storage** keeps uploaded images and attachments, link preview images (and backups made with `backup --upload`):
 
 - `local` (default): a directory, `/data` in the container image (a named volume in Compose,
   a PersistentVolumeClaim in the Helm chart). It is not shared between machines, so more than
@@ -310,7 +310,9 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `storage.s3_access_key_id` / `s3_secret_access_key` | | S3 credentials |
 | `storage.s3_force_path_style` | `false` | Path-style URLs (MinIO, SeaweedFS, most self-hosted stores) |
 | `storage.public_url` | *(served under `/media/`)* | Base URL of a CDN or public bucket serving uploads |
-| `uploads.max_size` | `8388608` | Largest accepted upload in bytes (64 KiB–100 MiB) |
+| `uploads.max_size` | `8388608` | Largest accepted upload in bytes (64 KiB–100 MiB), attachments included |
+| `embeds.enabled` | `true` | Fetch previews of links in messages and posts |
+| `embeds.allow_private_networks` | `false` | Let link previews fetch loopback, private and link-local addresses. Development only |
 | `mail.driver` | *(email off)* | `smtp`, `sendgrid`, `mailgun`, `postmark`, `resend`, `ses` or `log`; setting it makes email read-only in the browser |
 | `mail.from` | | Sender, e.g. `Gotalk <noreply@forum.example.com>` |
 | `mail.smtp_host` / `smtp_port` / `smtp_tls` | / `587` / `starttls` | SMTP server; `smtp_tls` is `starttls`, `tls` or `none` |
@@ -359,6 +361,24 @@ XMP and text metadata (such as a photo's GPS position) are stripped without re-e
 image. The response carries the new URL; `DELETE` on the same paths removes the image. Replaced
 files are deleted right away, and files nothing refers to any more (for example after an
 account deletion) after about an hour. URLs set directly with `PATCH` keep working.
+
+**Attachments.** Messages, new topics and replies take up to `limits.attachments` (10) files.
+Upload each with `POST /attachments?filename=…`, the file as the raw body with its
+`Content-Type`, then pass the returned IDs as `attachment_ids` within an hour (unsent uploads
+are deleted, as are the files of deleted messages). PNG, JPEG, GIF and WebP images are stripped
+of metadata and come back with `width` and `height`; any other file is kept as sent and served
+only as a download (`Content-Disposition: attachment`, in a sandbox). With files, `content` may
+be empty. `Message` and `Post` carry `attachments`, and feed items the opening post's first four
+`images` and `image_count`.
+
+**Link previews** (`features.link_previews`, on by default; `embeds.enabled`). After a message or
+post is saved, the server fetches up to five of its links (skipping code and `<url>`-wrapped
+links) and keeps their OpenGraph, Twitter card or `<title>` metadata for a week. The preview
+image is copied into storage, so readers never contact the linked site; a link straight to an
+image becomes an image preview. `Message` and `Post` list them in `embeds` (a chat message is
+re-sent as `MESSAGE_UPDATE` once they arrive), and feed items carry the opening post's first as
+`embed`. Fetches only reach public addresses, checked after DNS resolution and on every
+redirect, with a 10-second timeout and 1 MiB of HTML.
 
 **Instance settings (administrators).** `GET /instance/config` shows storage, email, voice and
 CORS with their `source` (`default`, `config` or `settings`), whether they are editable and
@@ -721,13 +741,14 @@ generated code is out of date.
 |---|---|
 | `cmd/gotalk` | CLI entry point: serve, migrate, setup, check, backup, restore, healthcheck |
 | `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway, `/media` serving |
-| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`, webhook queueing and delivery in `webhooks.go`, provider settings and reloading in `providers.go`, pre-flight checks in `health.go`, the email outbox, password reset and verification in `mailflows.go`, uploads in `uploads.go`) |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`, webhook queueing and delivery in `webhooks.go`, provider settings and reloading in `providers.go`, pre-flight checks in `health.go`, the email outbox, password reset and verification in `mailflows.go`, uploads in `uploads.go`, attachments and link previews in `attachments.go`) |
 | `internal/realtime` | Gateway event routing (hub), Redis or in-memory event broker, and presence store |
 | `internal/livekit` | Minimal LiveKit client: participant tokens, RoomService calls, webhook verification |
 | `internal/storage` | Storage driver registry and the `local` and `s3` drivers |
 | `internal/mail` | Mail driver registry and the `smtp`, `sendgrid`, `mailgun`, `postmark`, `resend`, `ses` and `log` drivers |
 | `internal/sigv4` | AWS Signature V4 signing shared by the S3 and SES drivers |
 | `internal/media` | Image validation and lossless metadata stripping |
+| `internal/unfurl` | Link preview fetching (OpenGraph, Twitter cards, `<title>`) restricted to public addresses |
 | `internal/backup` | Backup archives: consistent `COPY` dump plus media, verification and restore |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |

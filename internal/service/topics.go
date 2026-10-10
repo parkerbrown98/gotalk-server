@@ -36,8 +36,9 @@ func normalizeTitle(title string) (string, error) {
 	return title, nil
 }
 
-func validateContent(content string) error {
-	if strings.TrimSpace(content) == "" {
+// validateContent checks post content; it may only be empty when the post has files.
+func validateContent(content string, attachments int) error {
+	if strings.TrimSpace(content) == "" && attachments == 0 {
 		return apperr.Invalid("content must not be empty")
 	}
 	if utf8.RuneCountInString(content) > maxPostLen {
@@ -157,11 +158,13 @@ type ReactionSummary struct {
 // PostView is a post as the caller may see it. Deleted posts keep their place in the
 // thread with empty content unless the caller can manage posts.
 type PostView struct {
-	Post      store.Post
-	Author    *store.User
-	Depth     *int32
-	Reactions []ReactionSummary
-	Deleted   bool
+	Post        store.Post
+	Author      *store.User
+	Depth       *int32
+	Reactions   []ReactionSummary
+	Attachments []store.Upload
+	Embeds      []LinkPreview
+	Deleted     bool
 }
 
 // topicScope resolves a live topic the caller can see.
@@ -302,6 +305,7 @@ func (s *Service) postViews(ctx context.Context, q *store.Queries, p *Principal,
 		return nil, err
 	}
 	reactions := map[uuid.UUID][]ReactionSummary{}
+	files := map[uuid.UUID][]store.Upload{}
 	if len(postIDs) > 0 {
 		viewer := uuid.Nil
 		if p != nil {
@@ -314,10 +318,26 @@ func (s *Service) postViews(ctx context.Context, q *store.Queries, p *Principal,
 		for _, r := range rows {
 			reactions[r.PostID] = append(reactions[r.PostID], ReactionSummary{Emoji: r.Emoji, Count: r.Count, Me: r.Me})
 		}
+		atts, err := q.ListPostAttachments(ctx, postIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range atts {
+			files[a.PostID] = append(files[a.PostID], a.Upload)
+		}
+	}
+	contents := make([]string, len(posts))
+	for i, post := range posts {
+		contents[i] = post.Content
+	}
+	embeds, err := s.linkPreviews(ctx, q, contents)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]PostView, len(posts))
 	for i, post := range posts {
-		v := PostView{Post: post, Author: ptrUser(users, post.AuthorID), Reactions: reactions[post.ID]}
+		v := PostView{Post: post, Author: ptrUser(users, post.AuthorID), Reactions: reactions[post.ID],
+			Attachments: files[post.ID], Embeds: embeds[i]}
 		if v.Reactions == nil {
 			v.Reactions = []ReactionSummary{}
 		}
@@ -330,6 +350,7 @@ func (s *Service) postViews(ctx context.Context, q *store.Queries, p *Principal,
 			if !f.canModerate(post.BoardID) {
 				v.Post.Content = ""
 				v.Reactions = []ReactionSummary{}
+				v.Attachments, v.Embeds = nil, nil
 			}
 		}
 		out[i] = v
@@ -455,10 +476,12 @@ type CreateTopicInput struct {
 	Title   string
 	Content string
 	Tags    []string
+	// AttachmentIDs are files from UploadAttachment for the opening post, in display order.
+	AttachmentIDs []uuid.UUID
 }
 
 // insertPost appends a post to a locked topic and indexes it for search.
-func (s *Service) insertPost(ctx context.Context, q *store.Queries, topic store.Topic, author uuid.UUID, parentID *uuid.UUID, content string) (store.Post, error) {
+func (s *Service) insertPost(ctx context.Context, q *store.Queries, topic store.Topic, author uuid.UUID, parentID *uuid.UUID, content string, files []store.Upload) (store.Post, error) {
 	num, err := q.ClaimPostNumber(ctx, store.ClaimPostNumberParams{ID: topic.ID, PosterID: &author})
 	if err != nil {
 		return store.Post{}, err
@@ -474,6 +497,12 @@ func (s *Service) insertPost(ctx context.Context, q *store.Queries, topic store.
 	if err != nil {
 		return store.Post{}, err
 	}
+	if len(files) > 0 {
+		if err := q.AddPostAttachments(ctx, store.AddPostAttachmentsParams{PostID: post.ID, UploadIds: uploadIDs(files)}); err != nil {
+			return store.Post{}, err
+		}
+	}
+	s.resolveLinks(ctx, q, content, func(context.Context) {})
 	if err := s.indexPost(ctx, q, topic, post); err != nil {
 		return store.Post{}, err
 	}
@@ -501,7 +530,7 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 	if err != nil {
 		return TopicView{}, PostView{}, err
 	}
-	if err := validateContent(in.Content); err != nil {
+	if err := validateContent(in.Content, len(in.AttachmentIDs)); err != nil {
 		return TopicView{}, PostView{}, err
 	}
 	tags, err := normalizeTags(in.Tags)
@@ -524,6 +553,10 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 		if err := f.requireParticipant(b.ID, permissions.CreateTopics); err != nil {
 			return err
 		}
+		files, err := s.claimAttachments(ctx, q, p, in.AttachmentIDs)
+		if err != nil {
+			return err
+		}
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
@@ -534,7 +567,7 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 		if err != nil {
 			return err
 		}
-		post, err := s.insertPost(ctx, q, topic, p.User.ID, nil, in.Content)
+		post, err := s.insertPost(ctx, q, topic, p.User.ID, nil, in.Content, files)
 		if err != nil {
 			return err
 		}
@@ -787,12 +820,14 @@ func (s *Service) GetPost(ctx context.Context, p *Principal, postID uuid.UUID) (
 type ReplyInput struct {
 	Content  string
 	ParentID *uuid.UUID
+	// AttachmentIDs are files from UploadAttachment, in display order.
+	AttachmentIDs []uuid.UUID
 }
 
 // CreatePost replies to a topic. ParentID marks a direct reply to another post; threaded
 // boards nest replies under it.
 func (s *Service) CreatePost(ctx context.Context, p *Principal, topicID uuid.UUID, in ReplyInput) (PostView, error) {
-	if err := validateContent(in.Content); err != nil {
+	if err := validateContent(in.Content, len(in.AttachmentIDs)); err != nil {
 		return PostView{}, err
 	}
 	var view PostView
@@ -821,7 +856,11 @@ func (s *Service) CreatePost(ctx context.Context, p *Principal, topicID uuid.UUI
 			}
 			parent = &pp
 		}
-		post, err := s.insertPost(ctx, q, topic, p.User.ID, in.ParentID, in.Content)
+		files, err := s.claimAttachments(ctx, q, p, in.AttachmentIDs)
+		if err != nil {
+			return err
+		}
+		post, err := s.insertPost(ctx, q, topic, p.User.ID, in.ParentID, in.Content, files)
 		if err != nil {
 			return err
 		}
@@ -857,7 +896,7 @@ func (s *Service) CreatePost(ctx context.Context, p *Principal, topicID uuid.UUI
 // EditPost replaces a post's content, keeping the previous version as a revision. Authors
 // may edit their posts in open topics; MANAGE_POSTS may edit any post.
 func (s *Service) EditPost(ctx context.Context, p *Principal, postID uuid.UUID, content string) (PostView, error) {
-	if err := validateContent(content); err != nil {
+	if err := validateContent(content, 1); err != nil {
 		return PostView{}, err
 	}
 	var view PostView
@@ -868,6 +907,15 @@ func (s *Service) EditPost(ctx context.Context, p *Principal, postID uuid.UUID, 
 		}
 		if post.DeletedAt != nil {
 			return apperr.Conflict("deleted posts cannot be edited")
+		}
+		if strings.TrimSpace(content) == "" {
+			files, err := q.ListPostAttachments(ctx, []uuid.UUID{post.ID})
+			if err != nil {
+				return err
+			}
+			if err := validateContent(content, len(files)); err != nil {
+				return err
+			}
 		}
 		mod := f.canModerate(post.BoardID)
 		author := isAuthor(post.AuthorID, p)
@@ -902,6 +950,7 @@ func (s *Service) EditPost(ctx context.Context, p *Principal, postID uuid.UUID, 
 		if err != nil {
 			return err
 		}
+		s.resolveLinks(ctx, q, updated.Content, func(context.Context) {})
 		if err := s.indexPost(ctx, q, topic, updated); err != nil {
 			return err
 		}

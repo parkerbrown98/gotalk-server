@@ -150,21 +150,23 @@ type Reaction struct {
 }
 
 type Post struct {
-	ID            string     `json:"id" format:"uuid"`
-	TopicID       string     `json:"topic_id" format:"uuid"`
-	PlaceID       string     `json:"place_id" format:"uuid"`
-	BoardID       string     `json:"board_id" format:"uuid"`
-	Author        *User      `json:"author" doc:"null if the author deleted their account"`
-	ParentID      *string    `json:"parent_id" format:"uuid" doc:"The post this replies to, if any"`
-	PostNumber    int32      `json:"post_number" doc:"1 is the opening post; numbers are stable and never reused"`
-	Content       string     `json:"content" doc:"Markdown. Empty for deleted posts unless the caller can manage posts"`
-	Deleted       bool       `json:"deleted"`
-	Depth         *int32     `json:"depth,omitempty" doc:"Nesting depth; present when listing a threaded board"`
-	Reactions     []Reaction `json:"reactions"`
-	ReactionCount int32      `json:"reaction_count"`
-	EditCount     int32      `json:"edit_count"`
-	EditedAt      *time.Time `json:"edited_at"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID            string       `json:"id" format:"uuid"`
+	TopicID       string       `json:"topic_id" format:"uuid"`
+	PlaceID       string       `json:"place_id" format:"uuid"`
+	BoardID       string       `json:"board_id" format:"uuid"`
+	Author        *User        `json:"author" doc:"null if the author deleted their account"`
+	ParentID      *string      `json:"parent_id" format:"uuid" doc:"The post this replies to, if any"`
+	PostNumber    int32        `json:"post_number" doc:"1 is the opening post; numbers are stable and never reused"`
+	Content       string       `json:"content" doc:"Markdown. Empty for deleted posts unless the caller can manage posts"`
+	Deleted       bool         `json:"deleted"`
+	Depth         *int32       `json:"depth,omitempty" doc:"Nesting depth; present when listing a threaded board"`
+	Reactions     []Reaction   `json:"reactions"`
+	ReactionCount int32        `json:"reaction_count"`
+	Attachments   []Attachment `json:"attachments" doc:"Empty for deleted posts unless the caller can manage posts"`
+	Embeds        []Embed      `json:"embeds" doc:"Previews of links in the content, fetched by the server after posting"`
+	EditCount     int32        `json:"edit_count"`
+	EditedAt      *time.Time   `json:"edited_at"`
+	CreatedAt     time.Time    `json:"created_at"`
 }
 
 func toPost(v service.PostView) Post {
@@ -177,6 +179,7 @@ func toPost(v service.PostView) Post {
 		ID: p.ID.String(), TopicID: p.TopicID.String(), PlaceID: p.PlaceID.String(), BoardID: p.BoardID.String(),
 		Author: userPtr(v.Author), ParentID: idString(p.ParentID), PostNumber: p.PostNumber, Content: p.Content,
 		Deleted: v.Deleted, Depth: v.Depth, Reactions: reactions, ReactionCount: p.ReactionCount,
+		Attachments: mapSlice(v.Attachments, toAttachment), Embeds: mapSlice(v.Embeds, toEmbed),
 		EditCount: p.EditCount, EditedAt: p.EditedAt, CreatedAt: p.CreatedAt,
 	}
 }

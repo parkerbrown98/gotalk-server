@@ -93,4 +93,10 @@ mail:
   # secret_access_key: ""      # Amazon SES
 
 uploads:
-  max_size: 8388608            # bytes; avatars, place icons/banners and the instance icon
+  max_size: 8388608            # bytes; avatars, place icons/banners, the instance icon and attachments
+
+# Link previews: the server fetches links posted in chat and forum posts and stores their
+# title, description and preview image, so clients never contact the linked sites.
+embeds:
+  enabled: true
+  # allow_private_networks: false   # also fetch loopback/private addresses (development only)

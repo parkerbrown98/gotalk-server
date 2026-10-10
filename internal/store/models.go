@@ -189,6 +189,20 @@ type Invite struct {
 	CreatedAt time.Time
 }
 
+type LinkPreview struct {
+	Url           string
+	Status        string
+	Kind          string
+	FinalUrl      string
+	SiteName      string
+	Title         string
+	Description   string
+	ThemeColor    string
+	LargeImage    bool
+	ImageUploadID *uuid.UUID
+	FetchedAt     time.Time
+}
+
 type MailOutbox struct {
 	ID            uuid.UUID
 	Kind          string
@@ -227,6 +241,12 @@ type Message struct {
 	EditedAt   *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+type MessageAttachment struct {
+	MessageID uuid.UUID
+	UploadID  uuid.UUID
+	Position  int16
 }
 
 type MessageReaction struct {
@@ -324,6 +344,12 @@ type Post struct {
 	UpdatedAt     time.Time
 	DeletedAt     *time.Time
 	DeletedBy     *uuid.UUID
+}
+
+type PostAttachment struct {
+	PostID   uuid.UUID
+	UploadID uuid.UUID
+	Position int16
 }
 
 type PostReaction struct {
@@ -456,6 +482,7 @@ type Upload struct {
 	Width       int32
 	Height      int32
 	CreatedAt   time.Time
+	Filename    string
 }
 
 type User struct {

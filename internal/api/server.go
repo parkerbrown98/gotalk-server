@@ -151,6 +151,7 @@ func New(d Deps) (*Server, error) {
 		s.registerPolicies()
 		s.registerInstanceConfig()
 		s.registerUploads()
+		s.registerAttachments()
 		s.registerEmailFlows()
 	})
 
@@ -194,6 +195,7 @@ func (s *Server) Close() {
 		s.stopBackground()
 		s.background.Wait()
 		s.Service.WaitHealthChecks()
+		s.Service.WaitLinkPreviews()
 	})
 	s.Service.SetPublisher(nil)
 	s.hub.Close()

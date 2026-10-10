@@ -105,9 +105,18 @@ type FeedItem struct {
 	Board   store.Board
 	Place   store.Place
 	Excerpt string
+	// Images are the opening post's image attachments (at most feedImages); ImageCount
+	// counts all of them.
+	Images     []store.Upload
+	ImageCount int
+	// Embed is the first link preview of the opening post, if any.
+	Embed *LinkPreview
 	// IsNSFW is set when the board, one of its parents or the place is marked NSFW.
 	IsNSFW bool
 }
+
+// feedImages is how many of an opening post's images a feed item carries.
+const feedImages = 4
 
 type FeedPage struct {
 	Items []FeedItem
@@ -581,14 +590,47 @@ func (s *Service) feedItems(ctx context.Context, p *Principal, src feedSource, t
 		return nil, err
 	}
 	excerpts := make(map[uuid.UUID]string, len(posts))
-	for _, post := range posts {
+	postIDs := make([]uuid.UUID, len(posts))
+	contents := make([]string, len(posts))
+	topicOf := make(map[uuid.UUID]uuid.UUID, len(posts))
+	for i, post := range posts {
 		excerpts[post.TopicID] = plainExcerpt(post.Content, ExcerptLength)
+		postIDs[i], contents[i], topicOf[post.ID] = post.ID, post.Content, post.TopicID
+	}
+	images := map[uuid.UUID][]store.Upload{}
+	imageCounts := map[uuid.UUID]int{}
+	if len(postIDs) > 0 {
+		atts, err := s.q.ListPostAttachments(ctx, postIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range atts {
+			if !IsImage(a.Upload) {
+				continue
+			}
+			t := topicOf[a.PostID]
+			imageCounts[t]++
+			if len(images[t]) < feedImages {
+				images[t] = append(images[t], a.Upload)
+			}
+		}
+	}
+	previews, err := s.linkPreviews(ctx, s.q, contents)
+	if err != nil {
+		return nil, err
+	}
+	embeds := map[uuid.UUID]*LinkPreview{}
+	for i, ps := range previews {
+		if len(ps) > 0 {
+			embeds[posts[i].TopicID] = &ps[0]
+		}
 	}
 	items := make([]FeedItem, len(views))
 	for i, v := range views {
 		items[i] = FeedItem{
 			Topic: v, Board: src.boards[v.Topic.BoardID], Place: src.places[v.Topic.PlaceID],
 			Excerpt: excerpts[v.Topic.ID], IsNSFW: src.nsfw[v.Topic.BoardID],
+			Images: images[v.Topic.ID], ImageCount: imageCounts[v.Topic.ID], Embed: embeds[v.Topic.ID],
 		}
 	}
 	return items, nil

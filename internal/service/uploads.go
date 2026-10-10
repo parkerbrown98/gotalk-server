@@ -5,8 +5,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
+	"net/http"
+	"path"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -24,6 +30,8 @@ const (
 	UploadPlaceIcon    = "place_icon"
 	UploadPlaceBanner  = "place_banner"
 	UploadInstanceIcon = "instance_icon"
+	UploadAttachment   = "attachment"
+	UploadEmbed        = "embed"
 )
 
 var uploadDirs = map[string]string{
@@ -31,12 +39,14 @@ var uploadDirs = map[string]string{
 	UploadPlaceIcon:    "place-icons",
 	UploadPlaceBanner:  "place-banners",
 	UploadInstanceIcon: "instance",
+	UploadAttachment:   "attachments",
+	UploadEmbed:        "embeds",
 }
 
 // MediaPrefixes are the storage key prefixes served under /media/ and included in backups
 // as media.
 func MediaPrefixes() []string {
-	return []string{"avatars/", "place-icons/", "place-banners/", "instance/"}
+	return []string{"avatars/", "place-icons/", "place-banners/", "instance/", "attachments/", "embeds/"}
 }
 
 // uploadGrace protects new uploads from the cleanup sweep until they are attached.
@@ -48,37 +58,121 @@ func (s *Service) MaxUploadSize() int64 { return s.cfg.Uploads.MaxSize }
 // storeImage validates an image, strips its metadata, and stores it. The returned URL is
 // what entities reference; the upload is deleted by maintenance if nothing ever does.
 func (s *Service) storeImage(ctx context.Context, p *Principal, purpose string, data []byte, baseURL string) (string, error) {
+	up, err := s.storeUpload(ctx, &p.User.ID, uploadInput{purpose: purpose, data: data}, baseURL)
+	return up.Url, err
+}
+
+// uploadInput is a file to store. Only attachments may be something other than an image;
+// filename and contentType (as declared by the client) only matter for them.
+type uploadInput struct {
+	purpose     string
+	data        []byte
+	filename    string
+	contentType string
+}
+
+// storeUpload stores a file and records it. Images (PNG, JPEG, GIF, WebP) are validated and
+// stripped of metadata; other files are only accepted as attachments and kept as sent.
+func (s *Service) storeUpload(ctx context.Context, uploader *uuid.UUID, in uploadInput, baseURL string) (store.Upload, error) {
 	p0 := s.Providers()
 	b := p0.Storage
 	if b == nil {
-		return "", apperr.Unavailable("file uploads are unavailable: storage is not configured correctly")
+		return store.Upload{}, apperr.Unavailable("file uploads are unavailable: storage is not configured correctly")
 	}
-	if int64(len(data)) > s.cfg.Uploads.MaxSize {
-		return "", apperr.Invalid("the file is larger than the %d byte limit", s.cfg.Uploads.MaxSize)
+	if int64(len(in.data)) > s.cfg.Uploads.MaxSize {
+		return store.Upload{}, apperr.Invalid("the file is larger than the %d byte limit", s.cfg.Uploads.MaxSize)
 	}
-	info, clean, err := media.Process(data)
-	if err != nil {
-		return "", apperr.Invalid("%s", err.Error())
+	if len(in.data) == 0 {
+		return store.Upload{}, apperr.Invalid("the file is empty")
+	}
+	info, clean, err := media.Process(in.data)
+	switch {
+	case errors.Is(err, media.ErrUnsupported) && in.purpose == UploadAttachment:
+		clean = in.data
+		info = media.Info{ContentType: fileContentType(in.contentType, in.data), Ext: fileExt(in.filename)}
+	case err != nil:
+		return store.Upload{}, apperr.Invalid("%s", err.Error())
+	}
+	filename := ""
+	if in.purpose == UploadAttachment {
+		filename = cleanFilename(in.filename, info)
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
-		return "", err
+		return store.Upload{}, err
 	}
-	key := uploadDirs[purpose] + "/" + id.String() + "." + info.Ext
+	key := uploadDirs[in.purpose] + "/" + id.String() + "." + info.Ext
 	if err := b.Put(ctx, key, bytes.NewReader(clean), int64(len(clean)), info.ContentType); err != nil {
 		s.log.Error("storing upload", "key", key, "storage", b.Describe(), "error", err)
-		return "", apperr.Unavailable("the file could not be stored; try again later")
+		return store.Upload{}, apperr.Unavailable("the file could not be stored; try again later")
 	}
-	url := mediaURL(p0.StorageSettings.PublicURL, baseURL, key)
-	uploader := p.User.ID
-	if _, err := s.q.CreateUpload(ctx, store.CreateUploadParams{
-		ID: id, StorageKey: key, Url: url, Purpose: purpose, UploaderID: &uploader, ContentType: info.ContentType,
-		SizeBytes: int64(len(clean)), Width: int32(info.Width), Height: int32(info.Height), //nolint:gosec // bounded by media.MaxSide
-	}); err != nil {
+	up, err := s.q.CreateUpload(ctx, store.CreateUploadParams{
+		ID: id, StorageKey: key, Url: mediaURL(p0.StorageSettings.PublicURL, baseURL, key), Purpose: in.purpose,
+		UploaderID: uploader, ContentType: info.ContentType, SizeBytes: int64(len(clean)),
+		Width: int32(info.Width), Height: int32(info.Height), //nolint:gosec // bounded by media.MaxSide
+		Filename: filename,
+	})
+	if err != nil {
 		_ = b.Delete(context.WithoutCancel(ctx), key)
-		return "", err
+		return store.Upload{}, err
 	}
-	return url, nil
+	return up, nil
+}
+
+// IsImage reports whether an upload is an image clients can show inline.
+func IsImage(up store.Upload) bool { return up.Width > 0 && up.Height > 0 }
+
+// fileContentType picks the type recorded for a non-image attachment: the client's, if it
+// is well formed, or else a sniffed one. Files are always served as downloads in a
+// sandbox, so the type is only a hint.
+func fileContentType(declared string, data []byte) string {
+	if mt, _, err := mime.ParseMediaType(declared); err == nil && strings.Contains(mt, "/") && len(mt) <= 127 {
+		return mt
+	}
+	mt, _, _ := mime.ParseMediaType(http.DetectContentType(data))
+	return mt
+}
+
+var fileExtPattern = regexp.MustCompile(`^[a-z0-9]{1,10}$`)
+
+func fileExt(filename string) string {
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(filename), "."))
+	if fileExtPattern.MatchString(ext) {
+		return ext
+	}
+	return "bin"
+}
+
+const maxFilenameLen = 200
+
+// cleanFilename keeps the last path element of a client-supplied name, without control
+// characters, quotes or anything over maxFilenameLen characters (the extension is kept).
+func cleanFilename(name string, info media.Info) string {
+	name = path.Base(strings.ReplaceAll(name, "\\", "/"))
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '"' || r == '/' || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if name == "." || name == ".." {
+		name = ""
+	}
+	if name == "" {
+		if info.Width > 0 {
+			return "image." + info.Ext
+		}
+		return "file"
+	}
+	if r := []rune(name); len(r) > maxFilenameLen {
+		ext := []rune(path.Ext(name))
+		if len(ext) > 16 {
+			ext = nil
+		}
+		name = string(r[:maxFilenameLen-len(ext)]) + string(ext)
+	}
+	return name
 }
 
 func mediaURL(publicURL, baseURL, key string) string {
@@ -216,30 +310,39 @@ func (s *Service) SetInstanceIcon(ctx context.Context, p *Principal, data []byte
 	return updated, nil
 }
 
+// MediaFile is an uploaded file opened for serving.
+type MediaFile struct {
+	storage.Object
+	// Filename is the attachment's name; empty for other uploads.
+	Filename string
+	// Download is set for files that must not be shown inline (non-image attachments).
+	Download bool
+}
+
 // OpenMedia opens an uploaded file for serving. Only files recorded as uploads are
 // served, so backups and other objects in the bucket stay private.
-func (s *Service) OpenMedia(ctx context.Context, key string) (io.ReadCloser, storage.Object, error) {
+func (s *Service) OpenMedia(ctx context.Context, key string) (io.ReadCloser, MediaFile, error) {
 	if !storage.ValidKey(key) {
-		return nil, storage.Object{}, apperr.NotFound("file not found")
+		return nil, MediaFile{}, apperr.NotFound("file not found")
 	}
 	up, err := s.q.GetUploadByKey(ctx, key)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, storage.Object{}, apperr.NotFound("file not found")
+		return nil, MediaFile{}, apperr.NotFound("file not found")
 	}
 	if err != nil {
-		return nil, storage.Object{}, err
+		return nil, MediaFile{}, err
 	}
 	b := s.storageBackend()
 	if b == nil {
-		return nil, storage.Object{}, apperr.Unavailable("storage is not configured")
+		return nil, MediaFile{}, apperr.Unavailable("storage is not configured")
 	}
 	rc, obj, err := b.Get(ctx, key)
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil, storage.Object{}, apperr.NotFound("file not found")
+		return nil, MediaFile{}, apperr.NotFound("file not found")
 	}
 	if err != nil {
-		return nil, storage.Object{}, err
+		return nil, MediaFile{}, err
 	}
 	obj.ContentType = up.ContentType
-	return rc, obj, nil
+	return rc, MediaFile{Object: obj, Filename: up.Filename, Download: up.Purpose == UploadAttachment && !IsImage(up)}, nil
 }

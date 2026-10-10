@@ -53,7 +53,8 @@ type Features struct {
 	// PasswordReset and EmailVerification need email.
 	PasswordReset     bool `json:"password_reset" doc:"POST /auth/password-reset emails a reset link"`
 	EmailVerification bool `json:"email_verification" doc:"Accounts can verify their email address"`
-	Uploads           bool `json:"uploads" doc:"Avatars, place icons and banners, and the instance icon can be uploaded"`
+	Uploads           bool `json:"uploads" doc:"Avatars, place icons and banners, the instance icon, and message and post attachments can be uploaded"`
+	LinkPreviews      bool `json:"link_previews" doc:"The server fetches previews (embeds) for links in messages and posts"`
 }
 
 type FeedInfo struct {
@@ -85,8 +86,9 @@ type Limits struct {
 	CommandsPerApplication int      `json:"commands_per_application"`
 	PersonalTokens         int      `json:"personal_tokens"`
 	UploadSize             int64    `json:"upload_size" doc:"Largest accepted upload in bytes"`
-	UploadTypes            []string `json:"upload_types" doc:"Accepted image types"`
+	UploadTypes            []string `json:"upload_types" doc:"Accepted image types; attachments may also be other files"`
 	UploadMaxSide          int      `json:"upload_max_side" doc:"Largest accepted image width or height in pixels"`
+	Attachments            int      `json:"attachments" doc:"Most files one message or post can carry"`
 }
 
 type WebhookInfo struct {
@@ -184,6 +186,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 			APITokens: true, Bots: true, Webhooks: true, Policies: true, Transparency: true,
 			Feed: true, TopicVotes: true,
 			Email: mailOn, PasswordReset: mailOn, EmailVerification: mailOn, Uploads: s.Service.StorageEnabled(),
+			LinkPreviews: s.Config.Embeds.Enabled,
 		},
 		RateLimits: limits,
 		Policies:   policies,
@@ -193,6 +196,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 			ApplicationsPerUser: lim.ApplicationsPerUser, CommandsPerApplication: lim.CommandsPerApplication,
 			PersonalTokens: lim.PersonalTokens,
 			UploadSize:     s.Service.MaxUploadSize(), UploadTypes: media.ContentTypes(), UploadMaxSide: media.MaxSide,
+			Attachments: service.MaxAttachments,
 		},
 		Webhooks: WebhookInfo{
 			Events: service.WebhookEvents(), SignatureHeader: service.HeaderSignature, MaxAttempts: service.MaxWebhookAttempts,

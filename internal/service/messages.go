@@ -21,8 +21,9 @@ const (
 	maxNonceLen            = 64
 )
 
-func validateMessageContent(content string) error {
-	if strings.TrimSpace(content) == "" {
+// validateMessageContent checks content; it may only be empty when the message has files.
+func validateMessageContent(content string, attachments int) error {
+	if strings.TrimSpace(content) == "" && attachments == 0 {
 		return apperr.Invalid("content must not be empty")
 	}
 	if utf8.RuneCountInString(content) > maxMessageLen {
@@ -39,11 +40,14 @@ type MessageRef struct {
 
 // MessageView is a message with its author, reply target, reactions and thread.
 type MessageView struct {
-	Message   store.Message
-	Author    *store.User
-	ReplyTo   *MessageRef
-	Reactions []ReactionSummary
-	Thread    *store.Channel
+	Message     store.Message
+	Author      *store.User
+	ReplyTo     *MessageRef
+	Reactions   []ReactionSummary
+	Thread      *store.Channel
+	Attachments []store.Upload
+	// Embeds are previews of the links in the content that have been fetched so far.
+	Embeds []LinkPreview
 	// Nonce echoes the client's value on the create response and MESSAGE_CREATE event.
 	Nonce string
 }
@@ -99,8 +103,25 @@ func (s *Service) messageViews(ctx context.Context, q *store.Queries, viewer uui
 	for _, t := range ths {
 		threads[*t.ThreadMessageID] = t
 	}
+	files := map[uuid.UUID][]store.Upload{}
+	atts, err := q.ListMessageAttachments(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range atts {
+		files[a.MessageID] = append(files[a.MessageID], a.Upload)
+	}
+	contents := make([]string, len(msgs))
 	for i, m := range msgs {
-		v := MessageView{Message: m, Author: ptrUser(users, m.AuthorID), Reactions: reactions[m.ID]}
+		contents[i] = m.Content
+	}
+	embeds, err := s.linkPreviews(ctx, q, contents)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range msgs {
+		v := MessageView{Message: m, Author: ptrUser(users, m.AuthorID), Reactions: reactions[m.ID],
+			Attachments: files[m.ID], Embeds: embeds[i]}
 		if v.Reactions == nil {
 			v.Reactions = []ReactionSummary{}
 		}
@@ -356,12 +377,14 @@ type SendMessageInput struct {
 	Content   string
 	ReplyToID *uuid.UUID
 	Nonce     string
+	// AttachmentIDs are files from UploadAttachment, in display order.
+	AttachmentIDs []uuid.UUID
 }
 
 // SendMessage posts a message (SEND_MESSAGES). Mentions and replies notify people who can
 // see the channel; direct messages notify every other recipient.
 func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.UUID, in SendMessageInput) (MessageView, error) {
-	if err := validateMessageContent(in.Content); err != nil {
+	if err := validateMessageContent(in.Content, len(in.AttachmentIDs)); err != nil {
 		return MessageView{}, err
 	}
 	if len(in.Nonce) > maxNonceLen {
@@ -411,6 +434,10 @@ func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.
 				return err
 			}
 		}
+		files, err := s.claimAttachments(ctx, q, p, in.AttachmentIDs)
+		if err != nil {
+			return err
+		}
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
@@ -422,6 +449,12 @@ func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.
 		if err != nil {
 			return err
 		}
+		if len(files) > 0 {
+			if err := q.AddMessageAttachments(ctx, store.AddMessageAttachmentsParams{MessageID: m.ID, UploadIds: uploadIDs(files)}); err != nil {
+				return err
+			}
+		}
+		s.resolveLinks(ctx, q, m.Content, s.messageEmbedsUpdated(cc, m.ID))
 		if err := q.RecordChannelMessage(ctx, store.RecordChannelMessageParams{ID: ch.ID, MessageID: &m.ID, CreatedAt: &m.CreatedAt}); err != nil {
 			return err
 		}
@@ -458,7 +491,7 @@ func (s *Service) SendMessage(ctx context.Context, p *Principal, channelID uuid.
 // EditMessage replaces a message's content, keeping the previous version. Only the author
 // may edit, while they can still send messages in the channel. Newly added mentions notify.
 func (s *Service) EditMessage(ctx context.Context, p *Principal, messageID uuid.UUID, content string) (MessageView, error) {
-	if err := validateMessageContent(content); err != nil {
+	if err := validateMessageContent(content, 1); err != nil {
 		return MessageView{}, err
 	}
 	var view MessageView
@@ -472,6 +505,15 @@ func (s *Service) EditMessage(ctx context.Context, p *Principal, messageID uuid.
 		}
 		if err := cc.require(permissions.SendMessages); err != nil {
 			return err
+		}
+		if strings.TrimSpace(content) == "" {
+			files, err := q.ListMessageAttachments(ctx, []uuid.UUID{m.ID})
+			if err != nil {
+				return err
+			}
+			if err := validateMessageContent(content, len(files)); err != nil {
+				return err
+			}
 		}
 		if content == m.Content {
 			view, err = s.messageView(ctx, q, p.User.ID, m)
@@ -497,6 +539,7 @@ func (s *Service) EditMessage(ctx context.Context, p *Principal, messageID uuid.
 		if err != nil {
 			return err
 		}
+		s.resolveLinks(ctx, q, updated.Content, s.messageEmbedsUpdated(cc, updated.ID))
 		if err := s.notifyMessage(ctx, q, cc, updated, added, nil, nil); err != nil {
 			return err
 		}
@@ -516,6 +559,22 @@ func (s *Service) EditMessage(ctx context.Context, p *Principal, messageID uuid.
 
 func messageRef(cc *channelCtx, m store.Message) map[string]any {
 	return map[string]any{"id": m.ID, "channel_id": m.ChannelID, "place_id": cc.placeID()}
+}
+
+// messageEmbedsUpdated re-sends a message as MESSAGE_UPDATE once its link previews arrive.
+func (s *Service) messageEmbedsUpdated(cc *channelCtx, messageID uuid.UUID) func(context.Context) {
+	return func(ctx context.Context) {
+		m, err := s.q.GetMessage(ctx, messageID)
+		if err != nil {
+			return
+		}
+		pub, err := s.messageView(ctx, s.q, uuid.Nil, m)
+		if err != nil {
+			s.log.Warn("loading message for link previews", "message_id", messageID, "error", err)
+			return
+		}
+		s.publish(ctx, cc.event(EventMessageUpdate, pub))
+	}
 }
 
 // DeleteMessage removes a message. Authors may delete their own; MANAGE_MESSAGES may

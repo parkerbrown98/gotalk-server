@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"time"
@@ -270,6 +271,16 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	h.Set("ETag", etag)
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	h.Set("Cross-Origin-Resource-Policy", "cross-origin")
+	if obj.Filename != "" || obj.Download {
+		disposition := "inline"
+		if obj.Download {
+			disposition = "attachment"
+		}
+		if v := mime.FormatMediaType(disposition, map[string]string{"filename": obj.Filename}); v != "" && obj.Filename != "" {
+			disposition = v
+		}
+		h.Set("Content-Disposition", disposition)
+	}
 	if !obj.ModTime.IsZero() {
 		h.Set("Last-Modified", obj.ModTime.UTC().Format(http.TimeFormat))
 	}

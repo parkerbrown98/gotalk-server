@@ -101,9 +101,10 @@ type ListTagsInput struct {
 }
 
 type CreateTopicRequest struct {
-	Title   string   `json:"title" minLength:"1" maxLength:"200"`
-	Content string   `json:"content" minLength:"1" maxLength:"50000" doc:"Markdown"`
-	Tags    []string `json:"tags,omitempty" maxItems:"5"`
+	Title         string   `json:"title" minLength:"1" maxLength:"200"`
+	Content       string   `json:"content,omitempty" maxLength:"50000" doc:"Markdown. May be empty when attachment_ids is set"`
+	Tags          []string `json:"tags,omitempty" maxItems:"5"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" maxItems:"10" doc:"Files from POST /attachments for the opening post, in display order"`
 }
 
 type UpdateTopicRequest struct {
@@ -116,12 +117,13 @@ type UpdateTopicRequest struct {
 }
 
 type CreatePostRequest struct {
-	Content  string `json:"content" minLength:"1" maxLength:"50000" doc:"Markdown; @username mentions notify"`
-	ParentID string `json:"parent_id,omitempty" format:"uuid" doc:"The post being replied to"`
+	Content       string   `json:"content,omitempty" maxLength:"50000" doc:"Markdown; @username mentions notify. May be empty when attachment_ids is set"`
+	ParentID      string   `json:"parent_id,omitempty" format:"uuid" doc:"The post being replied to"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" maxItems:"10" doc:"Files from POST /attachments, in display order"`
 }
 
 type EditPostRequest struct {
-	Content string `json:"content" minLength:"1" maxLength:"50000"`
+	Content string `json:"content" maxLength:"50000" doc:"May be empty when the post has attachments"`
 }
 
 type SolutionRequest struct {
@@ -332,8 +334,12 @@ func (s *Server) registerTopics() {
 			if err != nil {
 				return nil, err
 			}
+			files, err := parseAttachmentIDs(in.Body.AttachmentIDs)
+			if err != nil {
+				return nil, err
+			}
 			t, p, err := s.Service.CreateTopic(ctx, mustPrincipal(ctx), id, service.CreateTopicInput{
-				Title: in.Body.Title, Content: in.Body.Content, Tags: in.Body.Tags,
+				Title: in.Body.Title, Content: in.Body.Content, Tags: in.Body.Tags, AttachmentIDs: files,
 			})
 			if err != nil {
 				return nil, err
@@ -514,7 +520,13 @@ func (s *Server) registerPosts() {
 			if err != nil {
 				return nil, err
 			}
-			p, err := s.Service.CreatePost(ctx, mustPrincipal(ctx), id, service.ReplyInput{Content: in.Body.Content, ParentID: parent})
+			files, err := parseAttachmentIDs(in.Body.AttachmentIDs)
+			if err != nil {
+				return nil, err
+			}
+			p, err := s.Service.CreatePost(ctx, mustPrincipal(ctx), id, service.ReplyInput{
+				Content: in.Body.Content, ParentID: parent, AttachmentIDs: files,
+			})
 			if err != nil {
 				return nil, err
 			}

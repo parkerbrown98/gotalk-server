@@ -101,7 +101,10 @@ type Message struct {
 	EditCount int32             `json:"edit_count"`
 	EditedAt  *time.Time        `json:"edited_at"`
 	CreatedAt time.Time         `json:"created_at"`
-	Nonce     string            `json:"nonce,omitempty" doc:"Echo of the client's nonce, on the send response and MESSAGE_CREATE only"`
+	// Files and link previews; previews are fetched after sending and arrive as MESSAGE_UPDATE.
+	Attachments []Attachment `json:"attachments"`
+	Embeds      []Embed      `json:"embeds" doc:"Previews of links in the content, fetched by the server after sending (MESSAGE_UPDATE follows)"`
+	Nonce       string       `json:"nonce,omitempty" doc:"Echo of the client's nonce, on the send response and MESSAGE_CREATE only"`
 }
 
 func toMessage(v service.MessageView) Message {
@@ -110,8 +113,10 @@ func toMessage(v service.MessageView) Message {
 		ID: m.ID.String(), ChannelID: m.ChannelID.String(), PlaceID: idString(m.PlaceID), Author: userPtr(v.Author),
 		Content: m.Content, ReplyToID: idString(m.ReplyToID), IsPinned: m.IsPinned, PinnedAt: m.PinnedAt,
 		EditCount: m.EditCount, EditedAt: m.EditedAt, CreatedAt: m.CreatedAt, Nonce: v.Nonce,
-		Mentions:  mapSlice(m.MentionIds, uuid.UUID.String),
-		Reactions: mapSlice(v.Reactions, func(r service.ReactionSummary) Reaction { return Reaction(r) }),
+		Mentions:    mapSlice(m.MentionIds, uuid.UUID.String),
+		Reactions:   mapSlice(v.Reactions, func(r service.ReactionSummary) Reaction { return Reaction(r) }),
+		Attachments: mapSlice(v.Attachments, toAttachment),
+		Embeds:      mapSlice(v.Embeds, toEmbed),
 	}
 	if v.ReplyTo != nil {
 		out.ReplyTo = &MessageReference{ID: v.ReplyTo.Message.ID.String(), Author: userPtr(v.ReplyTo.Author),

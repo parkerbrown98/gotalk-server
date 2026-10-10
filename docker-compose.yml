@@ -55,6 +55,9 @@ services:
       GOTALK_VOICE_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-gotalk-local-voice-secret-change-me}
       # Let place webhooks reach addresses on your own network (e.g. a home automation hub).
       GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: ${GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS:-false}
+      # Link previews for links posted in chat and forum posts (on by default).
+      GOTALK_EMBEDS_ENABLED: ${GOTALK_EMBEDS_ENABLED:-}
+      GOTALK_EMBEDS_ALLOW_PRIVATE_NETWORKS: ${GOTALK_EMBEDS_ALLOW_PRIVATE_NETWORKS:-false}
     volumes:
       - gotalk-data:/data
     depends_on:
