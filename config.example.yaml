@@ -60,3 +60,37 @@ webhooks:
   allow_private_networks: false  # let webhooks reach loopback/private/link-local addresses (trusted managers only)
   timeout: 10s                 # per delivery attempt
   delivery_retention: 168h     # how long finished deliveries stay in the delivery log
+
+# Sections below can also be set in the browser (setup wizard or /setup once set up).
+# Setting storage.driver, mail.driver, voice.livekit_url or server.cors_allowed_origins
+# here or in the environment makes that section read-only in the browser.
+
+storage:
+  driver: local                # local or s3
+  local_path: data             # directory for the local driver (the container image uses /data)
+  # s3_endpoint: https://s3.us-east-1.amazonaws.com   # empty = AWS S3 in s3_region; R2, MinIO, B2, GCS work too
+  # s3_region: us-east-1       # "auto" for Cloudflare R2
+  # s3_bucket: gotalk-media
+  # s3_prefix: ""              # key prefix, so several instances can share a bucket
+  # s3_access_key_id: ""
+  # s3_secret_access_key: ""   # prefer GOTALK_STORAGE_S3_SECRET_ACCESS_KEY(_FILE)
+  # s3_force_path_style: false # true for MinIO, SeaweedFS and most self-hosted stores
+  # public_url: ""             # serve files from a CDN/public bucket instead of /media/
+
+mail:
+  driver: ""                   # smtp, sendgrid, mailgun, postmark, resend, ses or log; empty disables email
+  # from: "Gotalk <noreply@forum.example.com>"
+  # smtp_host: smtp.example.com
+  # smtp_port: 587             # defaults: 587 (starttls), 465 (tls), 25 (none)
+  # smtp_tls: starttls         # starttls, tls or none
+  # smtp_username: ""
+  # smtp_password: ""
+  # api_key: ""                # SendGrid / Mailgun / Postmark server token / Resend
+  # api_url: ""                # override the provider API URL (e.g. https://api.eu.mailgun.net)
+  # domain: ""                 # Mailgun sending domain
+  # region: us-east-1          # Amazon SES
+  # access_key_id: ""          # Amazon SES
+  # secret_access_key: ""      # Amazon SES
+
+uploads:
+  max_size: 8388608            # bytes; avatars, place icons/banners and the instance icon

@@ -209,11 +209,11 @@ func TestVoiceDisabled(t *testing.T) {
 	info := e.expect(200, e.do("GET", "/api/v1/instance", "", nil)).obj(t)
 	require.Equal(t, false, info["features"].(map[string]any)["voice"])
 	ready := e.expect(200, e.do("GET", "/readyz", "", nil)).obj(t)
-	require.Equal(t, "ready", ready["status"])
+	require.Equal(t, "degraded", ready["status"], "email is not configured in tests")
 	require.Equal(t, "not_configured", ready["checks"].(map[string]any)["voice"])
 	checks := e.expect(200, e.do("GET", "/api/v1/setup/status", "", nil)).obj(t)["checks"].([]any)
 	require.Contains(t, checks, map[string]any{"name": "voice", "status": "skipped",
-		"detail": "not configured; set GOTALK_VOICE_LIVEKIT_URL and API credentials to enable voice channels"})
+		"detail": "not configured; set GOTALK_VOICE_LIVEKIT_URL and API credentials (or use the setup wizard) to enable voice channels"})
 }
 
 func TestVoiceChannels(t *testing.T) {

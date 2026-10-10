@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Confirm your email address</title>
+<style>
+  :root { color-scheme: light dark; --ok: #23a55a; --err: #f23f43; --muted: #8a8f98; --line: color-mix(in srgb, currentColor 15%, transparent); }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+  main { max-width: 420px; width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; }
+  h1 { margin: 0 0 8px; font-size: 1.4rem; }
+  .ok { color: var(--ok); } .error { color: var(--err); } .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Confirm your email address</h1>
+  <p id="status" class="muted">Confirming&hellip;</p>
+</main>
+<script>
+(() => {
+  const status = document.getElementById("status");
+  const token = new URLSearchParams(location.search).get("token") || "";
+  history.replaceState(null, "", location.pathname);
+  const show = (cls, text) => { status.className = cls; status.textContent = text; };
+  if (!token) { show("error", "This link is incomplete. Open the link from the email again."); return; }
+  fetch("/api/v1/auth/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
+    .then(async r => {
+      if (r.ok) { const u = await r.json(); show("ok", "Thanks, " + (u.display_name || u.username) + "! Your email address is confirmed. You can close this page."); return; }
+      const p = await r.json().catch(() => ({}));
+      show("error", p.detail || r.statusText);
+    })
+    .catch(() => show("error", "Could not reach the server. Reload to try again."));
+})();
+</script>
+</body>
+</html>

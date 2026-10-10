@@ -5,7 +5,8 @@
 // prefix separates the section from the key, e.g. GOTALK_DATABASE_URL -> database.url,
 // GOTALK_AUTH_JWT_SECRET -> auth.jwt_secret. Appending _FILE to any variable reads the
 // value from that file path instead (Docker/Kubernetes secrets convention). The common
-// platform variables DATABASE_URL, REDIS_URL and PORT are honored as fallbacks.
+// platform variables DATABASE_URL, REDIS_URL and PORT are honored as fallbacks. Empty
+// environment variables are ignored, so Compose files can pass optional ones through.
 package config
 
 import (
@@ -22,20 +23,50 @@ import (
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+
+	"github.com/parkerbrown98/gotalk-server/internal/mail"
+	"github.com/parkerbrown98/gotalk-server/internal/storage"
 )
 
 const EnvPrefix = "GOTALK_"
 
 type Config struct {
-	Server    Server    `koanf:"server"`
-	Database  Database  `koanf:"database"`
-	Redis     Redis     `koanf:"redis"`
-	Auth      Auth      `koanf:"auth"`
-	RateLimit RateLimit `koanf:"ratelimit"`
-	Log       Log       `koanf:"log"`
-	Setup     Setup     `koanf:"setup"`
-	Voice     Voice     `koanf:"voice"`
-	Webhooks  Webhooks  `koanf:"webhooks"`
+	Server    Server           `koanf:"server"`
+	Database  Database         `koanf:"database"`
+	Redis     Redis            `koanf:"redis"`
+	Auth      Auth             `koanf:"auth"`
+	RateLimit RateLimit        `koanf:"ratelimit"`
+	Log       Log              `koanf:"log"`
+	Setup     Setup            `koanf:"setup"`
+	Voice     Voice            `koanf:"voice"`
+	Webhooks  Webhooks         `koanf:"webhooks"`
+	Storage   storage.Settings `koanf:"storage"`
+	Mail      mail.Settings    `koanf:"mail"`
+	Uploads   Uploads          `koanf:"uploads"`
+
+	// explicit holds the keys set by the config file or the environment (as opposed to
+	// built-in defaults).
+	explicit map[string]bool
+}
+
+// IsSet reports whether key (e.g. "mail.driver") was set by the config file or the
+// environment rather than coming from a built-in default.
+func (c *Config) IsSet(key string) bool { return c.explicit[key] }
+
+// MarkSet records key as explicitly configured. Tests use it to simulate operator config.
+func (c *Config) MarkSet(keys ...string) {
+	if c.explicit == nil {
+		c.explicit = map[string]bool{}
+	}
+	for _, k := range keys {
+		c.explicit[k] = true
+	}
+}
+
+// Uploads limits files users upload (avatars and icons).
+type Uploads struct {
+	// MaxSize is the largest accepted upload in bytes.
+	MaxSize int64 `koanf:"max_size"`
 }
 
 type Server struct {
@@ -196,6 +227,9 @@ func defaults() map[string]any {
 		"voice.session_retention":     "720h",
 		"webhooks.timeout":            "10s",
 		"webhooks.delivery_retention": "168h",
+		"storage.driver":              "local",
+		"storage.local_path":          "data",
+		"uploads.max_size":            8 << 20,
 	}
 }
 
@@ -208,14 +242,12 @@ func Load(configFile string) (*Config, error) {
 }
 
 func load(configFile string, environ func() []string) (*Config, error) {
-	k := koanf.New(".")
-
-	if err := k.Load(confmap.Provider(defaults(), "."), nil); err != nil {
-		return nil, fmt.Errorf("loading defaults: %w", err)
-	}
+	// Operator-supplied layers are loaded on their own first, so explicitly set keys can
+	// be told apart from defaults.
+	layers := koanf.New(".")
 
 	if configFile != "" {
-		if err := k.Load(file.Provider(configFile), yaml.Parser()); err != nil {
+		if err := layers.Load(file.Provider(configFile), yaml.Parser()); err != nil {
 			return nil, fmt.Errorf("loading config file %q: %w", configFile, err)
 		}
 	}
@@ -223,6 +255,9 @@ func load(configFile string, environ func() []string) (*Config, error) {
 	platform := map[string]any{}
 	for _, kv := range environ() {
 		name, value, _ := strings.Cut(kv, "=")
+		if value == "" {
+			continue
+		}
 		switch name {
 		case "DATABASE_URL":
 			platform["database.url"] = value
@@ -232,7 +267,7 @@ func load(configFile string, environ func() []string) (*Config, error) {
 			platform["server.addr"] = ":" + value
 		}
 	}
-	if err := k.Load(confmap.Provider(platform, "."), nil); err != nil {
+	if err := layers.Load(confmap.Provider(platform, "."), nil); err != nil {
 		return nil, fmt.Errorf("loading platform environment: %w", err)
 	}
 
@@ -243,6 +278,9 @@ func load(configFile string, environ func() []string) (*Config, error) {
 		TransformFunc: func(name, value string) (string, any) {
 			key := strings.ToLower(strings.TrimPrefix(name, EnvPrefix))
 			if strings.HasSuffix(key, "_file") {
+				if value == "" {
+					return "", nil
+				}
 				// Reading an operator-supplied path is the point of the _FILE convention.
 				data, err := os.ReadFile(value) //nolint:gosec // path comes from trusted deployment config
 				if err != nil {
@@ -251,6 +289,9 @@ func load(configFile string, environ func() []string) (*Config, error) {
 				}
 				key = strings.TrimSuffix(key, "_file")
 				value = strings.TrimRight(string(data), "\r\n")
+			}
+			if value == "" {
+				return "", nil
 			}
 			section, rest, ok := strings.Cut(key, "_")
 			if !ok {
@@ -263,16 +304,29 @@ func load(configFile string, environ func() []string) (*Config, error) {
 			return key, value
 		},
 	})
-	if err := k.Load(envProvider, nil); err != nil {
+	if err := layers.Load(envProvider, nil); err != nil {
 		return nil, fmt.Errorf("loading environment: %w", err)
 	}
 	if fileErr != nil {
 		return nil, fileErr
 	}
 
+	k := koanf.New(".")
+	if err := k.Load(confmap.Provider(defaults(), "."), nil); err != nil {
+		return nil, fmt.Errorf("loading defaults: %w", err)
+	}
+	if err := k.Merge(layers); err != nil {
+		return nil, fmt.Errorf("merging configuration: %w", err)
+	}
+
 	var cfg Config
 	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "koanf"}); err != nil {
 		return nil, fmt.Errorf("decoding config: %w", err)
+	}
+	for _, key := range layers.Keys() {
+		if v := layers.Get(key); v != nil && v != "" {
+			cfg.MarkSet(key)
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -335,30 +389,22 @@ func (c *Config) Validate() error {
 	default:
 		add("log.format must be json or text")
 	}
-	if c.Server.CORSAllowCredentials {
-		for _, o := range c.Server.CORSAllowedOrigins {
-			if o == "*" {
-				add("server.cors_allow_credentials cannot be combined with a wildcard origin")
-			}
-		}
+	if err := ValidateCORS(c.Server.CORSAllowedOrigins, c.Server.CORSAllowCredentials); err != nil {
+		errs = append(errs, err)
 	}
 	if c.Voice.Enabled() {
-		for _, kv := range [][2]string{{"voice.livekit_url", c.Voice.LiveKitURL}, {"voice.livekit_api_url", c.Voice.LiveKitAPIURL}} {
-			key, v := kv[0], kv[1]
-			if v == "" {
-				continue
-			}
-			u, err := url.Parse(v)
-			if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss" && u.Scheme != "http" && u.Scheme != "https") {
-				add("%s must be an absolute ws, wss, http or https URL, got %q", key, v)
-			}
+		if err := ValidateVoice(c.Voice); err != nil {
+			errs = append(errs, err)
 		}
-		if c.Voice.LiveKitAPIKey == "" {
-			add("voice.livekit_api_key is required when voice.livekit_url is set")
-		}
-		if len(c.Voice.LiveKitAPISecret) < 32 {
-			add("voice.livekit_api_secret must be at least 32 characters when voice.livekit_url is set")
-		}
+	}
+	if _, err := storage.Open(c.Storage); err != nil {
+		errs = append(errs, err)
+	}
+	if _, err := mail.Open(c.Mail, mail.Env{}); err != nil {
+		errs = append(errs, err)
+	}
+	if c.Uploads.MaxSize < 64<<10 || c.Uploads.MaxSize > 100<<20 {
+		add("uploads.max_size must be between 65536 (64 KiB) and 104857600 (100 MiB) bytes")
 	}
 	if c.Voice.TokenTTL < time.Minute || c.Voice.TokenTTL > 24*time.Hour {
 		add("voice.token_ttl must be between 1m and 24h")
@@ -380,4 +426,50 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid configuration:\n  %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+// ValidateVoice checks LiveKit connection settings of an enabled voice section.
+func ValidateVoice(v Voice) error {
+	var errs []error
+	for _, kv := range [][2]string{{"voice.livekit_url", v.LiveKitURL}, {"voice.livekit_api_url", v.LiveKitAPIURL}} {
+		key, val := kv[0], kv[1]
+		if val == "" {
+			continue
+		}
+		u, err := url.Parse(val)
+		if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss" && u.Scheme != "http" && u.Scheme != "https") {
+			errs = append(errs, fmt.Errorf("%s must be an absolute ws, wss, http or https URL, got %q", key, val))
+		}
+	}
+	if v.LiveKitAPIKey == "" {
+		errs = append(errs, errors.New("voice.livekit_api_key is required when voice.livekit_url is set"))
+	}
+	if len(v.LiveKitAPISecret) < 32 {
+		errs = append(errs, errors.New("voice.livekit_api_secret must be at least 32 characters when voice.livekit_url is set"))
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateCORS checks allowed origins: "*", exact origins such as https://app.example.com,
+// or origins with a single wildcard such as https://*.example.com.
+func ValidateCORS(origins []string, allowCredentials bool) error {
+	var errs []error
+	for _, o := range origins {
+		if o == "*" {
+			if allowCredentials {
+				errs = append(errs, errors.New("server.cors_allow_credentials cannot be combined with a wildcard origin"))
+			}
+			continue
+		}
+		if strings.Count(o, "*") > 1 {
+			errs = append(errs, fmt.Errorf("server.cors_allowed_origins entry %q may contain at most one wildcard", o))
+			continue
+		}
+		u, err := url.Parse(strings.Replace(o, "*", "wildcard", 1))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") ||
+			u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(o, "/") {
+			errs = append(errs, fmt.Errorf("server.cors_allowed_origins entry %q must be an origin like https://app.example.com (no path or trailing slash)", o))
+		}
+	}
+	return errors.Join(errs...)
 }

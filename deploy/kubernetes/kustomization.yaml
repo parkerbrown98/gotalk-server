@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: gotalk
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - backup-cronjob.yaml
+
+images:
+  - name: ghcr.io/parkerbrown98/gotalk-server
+    newTag: latest
+
+configMapGenerator:
+  - name: gotalk-config
+    literals:
+      - GOTALK_SERVER_TRUST_PROXY=true
+      - GOTALK_LOG_FORMAT=json
+      - GOTALK_LOG_LEVEL=info
+      - GOTALK_STORAGE_DRIVER=s3
+      - GOTALK_STORAGE_S3_REGION=us-east-1
+      - GOTALK_STORAGE_S3_BUCKET=gotalk-media
+      - GOTALK_STORAGE_S3_PREFIX=gotalk/
+      - GOTALK_SETUP_INSTANCE_NAME=Gotalk
+      - GOTALK_SETUP_REGISTRATION_MODE=open
+
+secretGenerator:
+  - name: gotalk-env
+    envs:
+      - gotalk.env.example
+
+generatorOptions:
+  disableNameSuffixHash: true

@@ -343,7 +343,7 @@ these true from the same binary.
    clients can show which topics were already opened. **✅ Implemented**; see *Phase 6 status* below.
 7. **Self-Hosting & Cloud Polish:** Full wizard (non-interactive mode, pre-flight checks, reconfigure flow),
    configurable CORS/allowed-origins, Helm chart/k8s manifests, managed-dependency support, backup/restore,
-   storage/mail provider plugins.
+   storage/mail provider plugins. **✅ Implemented**; see *Phase 7 status* below.
 
 ### Phase 1 status
 
@@ -670,3 +670,98 @@ Deferred from the Phase 6 plan:
 - Media thumbnails and link previews in feed items (they need attachments from Phase 7).
 - Live feed updates over the gateway ("N new topics"); clients poll or refetch on focus until then.
 - Per-board default sort and per-Place feed customization beyond `voting_enabled`.
+
+### Phase 7 status
+
+Delivered in [`repos/gotalk-server`](../README.md):
+
+- **Storage plugins** (`internal/storage`): a driver registry (`storage.Register`, like
+  `database/sql`) with `local` (a directory, `/data` in the image) and `s3`, which covers AWS S3,
+  Cloudflare R2, MinIO, SeaweedFS, Backblaze B2 and GCS interop through a small internal AWS
+  Signature V4 signer (`internal/sigv4`, checked against AWS's published test vectors) instead of
+  the AWS SDK. Path-style or virtual-hosted addressing, key prefixes so instances can share a
+  bucket, and an optional public/CDN base URL. The S3 driver is tested against a real SeaweedFS
+  container with signature verification on.
+- **Mail plugins** (`internal/mail`): the same registry pattern with `smtp` (STARTTLS, implicit
+  TLS or plain; PLAIN, LOGIN and CRAM-MD5 auth), the HTTP APIs of `sendgrid`, `mailgun` (US and
+  EU), `postmark`, `resend` and `ses` (SES v2, SigV4), and `log` for development. Each driver
+  has a credential check that sends nothing. Multipart text/HTML messages with encoded headers,
+  header-injection checks, and provider errors that never echo secrets.
+- **Settings model:** storage, mail, voice (LiveKit) and CORS are *sections*. A section whose
+  enabling key (`storage.driver`, `mail.driver`, `voice.livekit_url`,
+  `server.cors_allowed_origins`) is set in the config file or environment is owned by config
+  and read-only in the browser (the IaC path); otherwise it can be saved through the wizard or
+  settings API into a new `instance_config` table (`InstanceConfig`). Saving checks each
+  section live first (unless forced), keeps secrets that were left empty, never returns them,
+  and bumps a revision that every replica polls (15 seconds), so storage, mail, the LiveKit
+  client and CORS (HTTP and gateway origin checks) are swapped at runtime with no restart.
+  Empty environment variables are now ignored, so Compose and templates can pass optional
+  variables through.
+- **Full wizard:** the browser wizard gained storage, email (with "skip for now") and voice
+  steps, each with a live **Test** button (`POST /setup/test`, setup-token protected; the email
+  test sends a real message to the admin address), a review step, an optional instance icon,
+  and "save anyway" for checks that fail. After setup, `/setup` becomes the **reconfigure** page:
+  administrators sign in to edit, test or reset each section and see live health
+  (`GET/PATCH /instance/config`, `DELETE /instance/config/{section}`,
+  `POST /instance/config/test`, `GET /instance/checks`; login sessions only).
+- **Pre-flight checks:** database (reachable and migrated, or newer than the binary), Redis,
+  public URL, storage (write, read back and delete a probe object), email (driver check) and
+  voice, each with an actionable hint. They back the wizard, `gotalk check` (exit 1 on errors),
+  headless `gotalk setup` (refuses to continue on errors unless `--skip-checks`), and one log
+  line per dependency at boot.
+- **Non-interactive mode and recovery:** `gotalk setup --reset` re-applies the `setup.*` values
+  to a configured instance (instance fields that are set; the admin account is created, or
+  promoted with its password reset and sessions/tokens revoked), which doubles as a
+  lost-admin-password recovery. `--reset-settings` forgets browser-saved sections.
+- **State signalling:** `/instance` gained `status` (`awaiting_setup` / `healthy` / `degraded`)
+  and `degraded_features`; `/healthz` reports the same `state`; `/readyz` also degrades on
+  storage and email (results cached 1/5 minutes so probes stay cheap) and still only fails
+  (503) for PostgreSQL and Redis.
+- **Mail consumers** (deferred from section 1): password reset by email (`/auth/password-reset`,
+  enumeration-safe `202`, one-hour single-use links, a one-minute per-account cooldown;
+  confirming signs out every session, revokes personal access tokens and marks the address
+  verified) and email verification (sent on registration, resendable, 48-hour links bound to
+  the address they were sent to). Email goes through a PostgreSQL outbox written in the
+  action's transaction and drained by every replica with `SKIP LOCKED`, retried with backoff
+  (six attempts), dropped when its links expire, and scrubbed of bodies once finished. Tokens
+  are stored hashed (`email_tokens`). Small embedded pages handle `/reset-password` and
+  `/verify-email` links.
+- **Storage consumers:** uploads for avatars, place icons and banners, and the instance icon
+  (raw-body `PUT`, size-limited, PNG/JPEG/GIF/WebP up to 8192 px per side). EXIF, XMP and text
+  metadata are stripped losslessly (`internal/media`, no CGO). Files are served from `/media/`
+  (only recorded uploads, immutable caching, sandboxing CSP) or linked from a CDN/public bucket.
+  Replaced files are deleted immediately; unreferenced ones are swept after an hour.
+- **Backup & restore** (`internal/backup`, `gotalk backup` / `backup list` / `restore`): one
+  `.tar.gz` with a manifest, every table as `COPY` output from a single REPEATABLE READ
+  snapshot (the server keeps running; no `pg_dump` needed) and the media read through the
+  storage driver, so archives move between local disk and S3. `--upload --keep N` stores
+  rotating archives in the storage backend. Restores verify the whole archive first, refuse
+  non-empty databases without `--force`, load everything in one transaction with foreign keys
+  re-validated and row counts compared, then migrate forward to the running version.
+- **Deployment artifacts:** a Helm chart (`deploy/helm/gotalk`: managed or built-in
+  PostgreSQL/Redis, existing Secrets for every credential, S3 or PVC storage, all mail drivers,
+  LiveKit, Ingress, HPA, PDB, backup CronJob, hardened read-only pod, and `fail` guards for
+  configurations that would break such as multiple replicas with unshared local storage or no
+  Redis), a Kustomize manifest set (`deploy/kubernetes`), a `/data` directory and volume in the
+  image and Compose file, and a Mailpit `mail` profile. CI lints and renders both with
+  `helm lint` and `kubeconform`.
+- **Tests:** SigV4 vectors, storage drivers (unit plus SeaweedFS integration), every mail
+  driver against fakes (including an in-process SMTP server), image metadata stripping, config
+  layering, and end-to-end API tests for the wizard with provider sections, the settings API
+  (read-only sections, write-only secrets, runtime CORS, propagation to a second replica),
+  password reset, verification, outbox retries and expiry, uploads and cleanup, admin recovery
+  and backup/restore into a fresh database and storage. All pass with `-race`.
+
+Deferred from section 11 and the deferred lists of earlier phases:
+
+- **Attachments on posts and messages, link unfurling, media thumbnails and feed previews:**
+  the storage backends, upload validation and `/media` serving they need now exist; the
+  per-board/channel `ATTACH_FILES` flows, quotas and a resizing pipeline are follow-up work.
+- **Data export, retention policies, digests, push notifications, OAuth/OIDC login and MFA:**
+  mail delivery and storage are in place for them; each needs its own product work.
+- **Encrypting secrets saved through the settings page:** they are stored in the database as
+  entered (like the generated JWT secret), so database backups must be protected. Operators who
+  prefer can keep every secret in environment variables or mounted files instead.
+- **Direct autocert/Let's Encrypt:** TLS still terminates in front of Gotalk.
+- **Federation/import tooling** (Discourse, Discord exports) and a committed seed benchmark for
+  feed query plans.

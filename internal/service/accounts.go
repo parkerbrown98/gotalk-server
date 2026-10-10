@@ -108,6 +108,8 @@ type RegisterInput struct {
 	InviteCode string
 	// AcceptPolicies records consent to every current policy that requires it.
 	AcceptPolicies bool
+	// BaseURL is the instance's public URL, used for the verification email link.
+	BaseURL string
 }
 
 // Register creates an account according to the instance's registration mode. In
@@ -144,6 +146,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput, client ClientI
 		}
 		if in.InviteCode != "" {
 			if _, err := s.redeemInvite(ctx, q, user.ID, in.InviteCode); err != nil {
+				return err
+			}
+		}
+		if s.MailEnabled() && in.BaseURL != "" {
+			if err := s.queueVerification(ctx, q, user, in.BaseURL); err != nil {
 				return err
 			}
 		}

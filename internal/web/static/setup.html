@@ -8,21 +8,26 @@
 <style>
   :root { color-scheme: light dark; --accent: #5865f2; --ok: #23a55a; --warn: #f0b232; --err: #f23f43; --muted: #8a8f98; --line: color-mix(in srgb, currentColor 15%, transparent); }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; min-height: 100vh; padding: 24px; }
-  main { max-width: 560px; width: 100%; }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: start center; min-height: 100vh; padding: 32px 24px; }
+  main { max-width: 620px; width: 100%; }
   h1 { margin: 0; font-size: 1.75rem; }
   .muted { color: var(--muted); }
-  ol.steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 16px 0 20px; }
+  ol.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 16px 0 20px; }
   ol.steps li { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
   ol.steps li.done { background: var(--accent); }
-  section { display: none; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; }
+  section, .card { border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; }
+  section[data-step] { display: none; }
   section.active { display: block; }
-  h2 { margin: 0 0 4px; font-size: 1.2rem; }
+  h2 { margin: 0 0 4px; font-size: 1.2rem; display: flex; align-items: center; gap: 8px; }
   label { display: block; margin-top: 14px; font-weight: 600; font-size: .9rem; }
-  label small { font-weight: 400; color: var(--muted); }
+  label small, .field small { font-weight: 400; color: var(--muted); }
+  label.inline { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+  label.inline input { width: auto; margin: 0; }
   input, select, textarea { width: 100%; margin-top: 4px; padding: 9px 11px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+  input:disabled, select:disabled, textarea:disabled { opacity: .7; }
   textarea { resize: vertical; min-height: 64px; }
-  .actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  .actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+  .actions .right { display: flex; gap: 8px; margin-left: auto; }
   button { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button:disabled { opacity: .5; cursor: not-allowed; }
@@ -31,145 +36,464 @@
   ul.checks li:first-child { border-top: 0; }
   .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; background: var(--muted); }
   .dot.ok { background: var(--ok); } .dot.warning { background: var(--warn); } .dot.error { background: var(--err); }
-  .error { color: var(--err); margin-top: 12px; min-height: 1.5em; }
+  .hint { color: var(--muted); font-size: .9rem; }
+  .error { color: var(--err); margin-top: 12px; min-height: 1.5em; white-space: pre-wrap; }
+  .badge { font-size: .75rem; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .locked { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 12%, transparent); font-size: .9rem; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
   dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
   code { font-size: .9em; }
+  img.preview { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; margin-top: 8px; display: none; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Welcome to Gotalk</h1>
-  <p class="muted">Let's get your instance running. This only takes a minute.</p>
-  <ol class="steps"><li></li><li></li><li></li><li></li></ol>
+  <div id="wizard" class="hidden">
+    <h1>Welcome to Gotalk</h1>
+    <p class="muted">Let's get your instance running. Everything here can be changed later.</p>
+    <ol class="steps" id="bars"></ol>
 
-  <section data-step="0">
-    <h2>Pre-flight checks</h2>
-    <p class="muted">Making sure everything this server depends on is reachable.</p>
-    <ul class="checks" id="checks"><li><span class="dot"></span><span>Checking&hellip;</span></li></ul>
-    <label>Setup token <small>&mdash; printed in the server logs on first boot</small>
-      <input id="token" autocomplete="off" spellcheck="false" required>
-    </label>
-    <div class="error" id="err0"></div>
-    <div class="actions"><span></span><button class="primary" id="next0">Continue</button></div>
-  </section>
+    <section data-step="checks">
+      <h2>Pre-flight checks</h2>
+      <p class="muted">Making sure everything this server depends on is reachable.</p>
+      <ul class="checks" id="checks"><li><span class="dot"></span><span>Checking&hellip;</span></li></ul>
+      <label>Setup token <small>&mdash; printed in the server logs on first boot</small>
+        <input id="token" autocomplete="off" spellcheck="false" required>
+      </label>
+      <div class="error" data-err></div>
+      <div class="actions"><button id="recheck">Re-run checks</button><button class="primary" data-next>Continue</button></div>
+    </section>
 
-  <section data-step="1">
-    <h2>Your instance</h2>
-    <p class="muted">You can change all of this later.</p>
-    <label>Name <input id="name" maxlength="100" required></label>
-    <label>Description <small>(optional)</small><textarea id="description" maxlength="1000"></textarea></label>
-    <label>Who can create an account?
-      <select id="mode">
-        <option value="open">Anyone</option>
-        <option value="invite_only">Only people with an invite</option>
-        <option value="closed">Nobody (registration closed)</option>
-      </select>
-    </label>
-    <div class="error" id="err1"></div>
-    <div class="actions"><button data-back>Back</button><button class="primary" id="next1">Continue</button></div>
-  </section>
+    <section data-step="instance">
+      <h2>Your instance</h2>
+      <label>Name <input id="name" maxlength="100" required></label>
+      <label>Description <small>(optional)</small><textarea id="description" maxlength="1000"></textarea></label>
+      <label>Who can create an account?
+        <select id="mode">
+          <option value="open">Anyone</option>
+          <option value="invite_only">Only people with an invite</option>
+          <option value="closed">Nobody (registration closed)</option>
+        </select>
+      </label>
+      <label>Icon <small>(optional; PNG, JPEG, GIF or WebP, uploaded when setup finishes)</small><input id="icon" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
+      <img class="preview" id="iconPreview" alt="">
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><button class="primary" data-next>Continue</button></div>
+    </section>
 
-  <section data-step="2">
-    <h2>Administrator account</h2>
-    <p class="muted">This account will manage the instance.</p>
-    <label>Username <input id="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_.\-]+" autocomplete="username" required></label>
-    <label>Email <input id="email" type="email" maxlength="254" autocomplete="email" required></label>
-    <label>Password <small>&mdash; at least 10 characters</small><input id="password" type="password" minlength="10" maxlength="256" autocomplete="new-password" required></label>
-    <label>Confirm password <input id="password2" type="password" autocomplete="new-password" required></label>
-    <div class="error" id="err2"></div>
-    <div class="actions"><button data-back>Back</button><button class="primary" id="finish">Finish setup</button></div>
-  </section>
+    <section data-step="admin">
+      <h2>Administrator account</h2>
+      <p class="muted">This account will manage the instance.</p>
+      <label>Username <input id="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_.\-]+" autocomplete="username" required></label>
+      <label>Email <input id="email" type="email" maxlength="254" autocomplete="email" required></label>
+      <label>Password <small>&mdash; at least 10 characters</small><input id="password" type="password" minlength="10" maxlength="256" autocomplete="new-password" required></label>
+      <label>Confirm password <input id="password2" type="password" autocomplete="new-password" required></label>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><button class="primary" data-next>Continue</button></div>
+    </section>
 
-  <section data-step="3">
-    <h2>You're all set &#127881;</h2>
-    <p>Your instance is live. Point any Gotalk client at this address and log in as <strong id="doneUser"></strong>.</p>
-    <dl>
-      <dt>Server address</dt><dd><code id="doneURL"></code></dd>
-      <dt>API docs</dt><dd><a href="/api/v1/docs">/api/v1/docs</a></dd>
-    </dl>
-    <div class="actions"><span></span><a href="/"><button class="primary">Go to instance</button></a></div>
-  </section>
+    <section data-step="storage">
+      <h2>File storage</h2>
+      <p class="muted">Where uploaded avatars and icons (and backups made with <code>gotalk backup --upload</code>) are kept.</p>
+      <div id="storageForm"></div>
+      <ul class="checks" data-results></ul>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><div class="right"><button data-test>Test</button><button class="primary" data-next>Continue</button></div></div>
+    </section>
+
+    <section data-step="mail">
+      <h2>Email</h2>
+      <p class="muted">Used for password resets and email verification. You can skip this for now.</p>
+      <div id="mailForm"></div>
+      <ul class="checks" data-results></ul>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><div class="right"><button data-test>Send test email</button><button class="primary" data-next>Continue</button></div></div>
+    </section>
+
+    <section data-step="voice">
+      <h2>Voice &amp; video <span class="badge">optional</span></h2>
+      <p class="muted">Voice channels need a <a href="https://livekit.io" target="_blank" rel="noopener">LiveKit</a> server.</p>
+      <div id="voiceForm"></div>
+      <ul class="checks" data-results></ul>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><div class="right"><button data-test>Test</button><button class="primary" data-next>Continue</button></div></div>
+    </section>
+
+    <section data-step="review">
+      <h2>Review</h2>
+      <dl id="review"></dl>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><div class="right"><button id="force" class="hidden">Save anyway</button><button class="primary" id="finish">Finish setup</button></div></div>
+    </section>
+
+    <section data-step="done">
+      <h2>You're all set &#127881;</h2>
+      <p>Your instance is live. Point any Gotalk client at this address and log in as <strong id="doneUser"></strong>.</p>
+      <dl>
+        <dt>Server address</dt><dd><code id="doneURL"></code></dd>
+        <dt>API docs</dt><dd><a href="/api/v1/docs">/api/v1/docs</a></dd>
+        <dt>Settings</dt><dd><a href="/setup">/setup</a> &mdash; sign in as an administrator to change storage, email, voice or CORS</dd>
+      </dl>
+      <div class="error" id="doneErr"></div>
+      <div class="actions"><span></span><a href="/"><button class="primary">Go to instance</button></a></div>
+    </section>
+  </div>
+
+  <div id="settings" class="hidden">
+    <h1>Instance settings</h1>
+    <p class="muted">Storage, email, voice and CORS for this Gotalk instance. Sections set in the config file or environment are read-only here.</p>
+    <div class="card" id="login">
+      <h2>Sign in</h2>
+      <p class="muted">Use an instance administrator account.</p>
+      <label>Username or email <input id="loginName" autocomplete="username"></label>
+      <label>Password <input id="loginPassword" type="password" autocomplete="current-password"></label>
+      <div class="error" id="loginErr"></div>
+      <div class="actions"><span></span><button class="primary" id="loginBtn">Sign in</button></div>
+    </div>
+    <div id="panels" class="hidden">
+      <div class="card"><h2>Health</h2><ul class="checks" id="liveChecks"></ul></div>
+      <div id="sections"></div>
+      <div class="actions"><span></span><button id="logout">Sign out</button></div>
+    </div>
+  </div>
 </main>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const sections = [...document.querySelectorAll("section")];
-  const bars = [...document.querySelectorAll("ol.steps li")];
-  let step = 0;
-  const show = n => {
-    step = n;
-    sections.forEach((s, i) => s.classList.toggle("active", i === n));
-    bars.forEach((b, i) => b.classList.toggle("done", i <= n));
-  };
-  document.querySelectorAll("[data-back]").forEach(b => b.addEventListener("click", () => show(step - 1)));
-
-  // Take the token from the link printed in the logs, then drop it from the address bar/history.
-  const params = new URLSearchParams(location.search);
-  if (params.get("token")) { $("token").value = params.get("token"); history.replaceState(null, "", location.pathname); }
-
-  const problem = async r => {
-    try { const p = await r.json(); return (p.errors && p.errors[0] && p.errors[0].message ? p.detail + ": " + p.errors[0].location + " " + p.errors[0].message : p.detail) || r.statusText; }
-    catch { return r.statusText; }
-  };
-
-  let checksOK = false;
-  fetch("/api/v1/setup/status").then(r => r.json()).then(s => {
-    if (!s.setup_required) { location.href = "/"; return; }
-    $("name").value = s.defaults.instance_name;
-    $("mode").value = s.defaults.registration_mode;
-    const list = $("checks"); list.innerHTML = "";
-    s.checks.forEach(c => {
-      const li = document.createElement("li");
-      const dot = document.createElement("span"); dot.className = "dot " + c.status;
-      const text = document.createElement("span");
-      const name = document.createElement("strong"); name.textContent = c.name;
-      text.append(name, document.createElement("br"), document.createTextNode(c.detail));
-      li.append(dot, text); list.append(li);
-    });
-    checksOK = !s.checks.some(c => c.status === "error");
-    if (!checksOK) $("err0").textContent = "Fix the errors above, then reload this page.";
-  }).catch(() => { $("err0").textContent = "Could not reach the server."; });
-
-  $("next0").addEventListener("click", () => {
-    if (!checksOK) return;
-    if (!$("token").value.trim()) { $("err0").textContent = "Enter the setup token from the server logs."; return; }
-    $("err0").textContent = ""; show(1);
-  });
-  $("next1").addEventListener("click", () => {
-    if (!$("name").value.trim()) { $("err1").textContent = "Give your instance a name."; return; }
-    $("err1").textContent = ""; show(2);
-  });
-  $("finish").addEventListener("click", async () => {
-    const err = $("err2");
-    for (const id of ["username", "email", "password"]) {
-      if (!$(id).checkValidity()) { err.textContent = "Check the " + id + " field: " + $(id).validationMessage; return; }
+  const h = (tag, attrs = {}, ...kids) => {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") el.className = v; else if (k === "text") el.textContent = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
     }
-    if ($("password").value !== $("password2").value) { err.textContent = "Passwords do not match."; return; }
-    err.textContent = ""; $("finish").disabled = true;
+    kids.flat().forEach(c => c != null && el.append(c));
+    return el;
+  };
+  const problem = async r => {
     try {
-      const r = await fetch("/api/v1/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          setup_token: $("token").value.trim(),
+      const p = await r.json();
+      const first = p.errors && p.errors[0];
+      return (first && first.message ? p.detail + ": " + (first.location || "") + " " + first.message : p.detail) || r.statusText;
+    } catch { return r.statusText; }
+  };
+  const api = async (method, path, body, headers = {}) => {
+    const init = { method, headers: { ...headers } };
+    if (body !== undefined) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+    const r = await fetch("/api/v1" + path, init);
+    if (!r.ok) { const e = new Error(await problem(r)); e.status = r.status; throw e; }
+    return r.status === 204 ? null : r.json();
+  };
+  const present = (...kids) => kids.filter(k => k != null);
+  const renderChecks = (list, checks) => {
+    list.replaceChildren(...checks.map(c => h("li", {}, h("span", { class: "dot " + c.status }),
+      h("span", {}, h("strong", { text: c.name }), h("br"), c.detail, c.hint && c.status !== "ok" ? h("div", { class: "hint", text: "→ " + c.hint }) : null))));
+  };
+
+  // Provider forms shared by the wizard and the settings page. Each kind lists its drivers
+  // and their fields: [key, label, type, options]. "secret" fields are write-only.
+  const FROM = ["from", "Sender address", "text", null, "Gotalk <noreply@forum.example.com>"];
+  const KINDS = {
+    storage: {
+      label: "Storage driver",
+      drivers: {
+        local: { label: "Local disk", fields: [["local_path", "Directory", "text", null, "/data"]] },
+        s3: { label: "S3-compatible (AWS S3, R2, MinIO, B2, GCS…)", fields: [
+          ["s3_endpoint", "Endpoint", "text", null, "https://s3.us-east-1.amazonaws.com (empty for AWS)"],
+          ["s3_region", "Region", "text", null, "us-east-1 (auto for R2)"],
+          ["s3_bucket", "Bucket"], ["s3_prefix", "Key prefix (optional)"],
+          ["s3_access_key_id", "Access key ID"], ["s3_secret_access_key", "Secret access key", "secret"],
+          ["s3_force_path_style", "Path-style URLs (MinIO, SeaweedFS and most self-hosted stores)", "checkbox"]] },
+      },
+      common: [["public_url", "Public URL (optional; CDN or public bucket serving the files)", "text", null, "https://cdn.example.com"]],
+    },
+    mail: {
+      label: "Provider",
+      drivers: {
+        "": { label: "Skip for now (no email)", fields: [] },
+        smtp: { label: "SMTP", fields: [FROM, ["smtp_host", "Host"], ["smtp_port", "Port", "number", null, "587"],
+          ["smtp_tls", "Security", "select", [["starttls", "STARTTLS (port 587)"], ["tls", "TLS (port 465)"], ["none", "None"]]],
+          ["smtp_username", "Username"], ["smtp_password", "Password", "secret"]] },
+        sendgrid: { label: "SendGrid", fields: [FROM, ["api_key", "API key", "secret"]] },
+        mailgun: { label: "Mailgun", fields: [FROM, ["domain", "Sending domain"], ["api_key", "API key", "secret"], ["api_url", "API URL (EU region: https://api.eu.mailgun.net)"]] },
+        postmark: { label: "Postmark", fields: [FROM, ["api_key", "Server token", "secret"]] },
+        resend: { label: "Resend", fields: [FROM, ["api_key", "API key", "secret"]] },
+        ses: { label: "Amazon SES", fields: [FROM, ["region", "Region", "text", null, "us-east-1"], ["access_key_id", "Access key ID"], ["secret_access_key", "Secret access key", "secret"]] },
+        log: { label: "Log only (development; emails go to the server log)", fields: [FROM] },
+      },
+      common: [],
+    },
+    voice: {
+      label: "Voice",
+      drivers: {
+        "": { label: "Disabled", fields: [] },
+        livekit: { label: "LiveKit", fields: [["livekit_url", "LiveKit URL clients connect to", "text", null, "wss://voice.example.com"],
+          ["livekit_api_url", "API URL from this server (optional)", "text", null, "http://livekit:7880"],
+          ["livekit_api_key", "API key"], ["livekit_api_secret", "API secret (32+ characters)", "secret"]] },
+      },
+      common: [],
+    },
+  };
+
+  // providerForm renders a section and returns { read() } producing its settings object.
+  const providerForm = (el, kind, sec) => {
+    const def = KINDS[kind], s = sec.settings || {}, secrets = new Set(sec.secrets_set || []);
+    const editable = sec.editable !== false;
+    let driver = kind === "voice" ? (s.livekit_url ? "livekit" : "") : (s.driver || "");
+    const inputs = {};
+    const fieldsEl = h("div");
+    const select = h("select", { disabled: !editable, onchange: () => { driver = select.value; draw(); } },
+      Object.entries(def.drivers).map(([k, d]) => h("option", { value: k, text: d.label })));
+    select.value = driver;
+    const field = ([key, label, type = "text", options, placeholder]) => {
+      let input;
+      if (type === "checkbox") {
+        input = h("input", { type: "checkbox", disabled: !editable });
+        input.checked = !!s[key];
+        inputs[key] = input;
+        return h("label", { class: "inline" }, input, label);
+      }
+      if (type === "select") {
+        input = h("select", { disabled: !editable }, options.map(([v, l]) => h("option", { value: v, text: l })));
+        input.value = s[key] || options[0][0];
+      } else {
+        input = h("input", { type: type === "secret" ? "password" : type, autocomplete: "off", spellcheck: "false", disabled: !editable,
+          placeholder: type === "secret" && secrets.has(key) ? "•••••••• (leave empty to keep)" : placeholder || "" });
+        if (type !== "secret" && s[key] != null && s[key] !== 0) input.value = s[key];
+      }
+      inputs[key] = input;
+      return h("label", {}, label, input);
+    };
+    const draw = () => {
+      for (const k in inputs) delete inputs[k];
+      fieldsEl.replaceChildren(...(def.drivers[driver] || { fields: [] }).fields.map(field), ...(driver ? def.common.map(field) : []));
+    };
+    el.replaceChildren(...present(
+      editable ? null : h("div", { class: "locked", text: "Set by the config file or environment (" + sec.config_key + "); change it there." }),
+      h("label", {}, def.label, select), fieldsEl, sec.error ? h("div", { class: "error", text: "Current settings fail to load: " + sec.error }) : null));
+    draw();
+    return {
+      editable,
+      driver: () => driver,
+      read() {
+        const out = kind === "voice" ? { livekit_url: "" } : { driver };
+        for (const [k, input] of Object.entries(inputs)) {
+          if (input.type === "checkbox") out[k] = input.checked;
+          else if (input.type === "number") { if (input.value) out[k] = parseInt(input.value, 10); }
+          else if (input.value !== "") out[k] = input.value.trim();
+        }
+        return out;
+      },
+      summary() {
+        if (!editable) return "set by config (" + (kind === "voice" ? (s.livekit_url || "disabled") : (s.driver || "disabled")) + ")";
+        return def.drivers[driver].label + (driver === "local" && inputs.local_path ? " — " + inputs.local_path.value : "")
+          + (driver === "s3" && inputs.s3_bucket ? " — bucket " + inputs.s3_bucket.value : "");
+      },
+    };
+  };
+
+  const corsForm = (el, sec) => {
+    const editable = sec.editable !== false, s = sec.settings || {};
+    const ta = h("textarea", { disabled: !editable, rows: 3, placeholder: "* or one origin per line, e.g. https://app.example.com" });
+    ta.value = (s.allowed_origins || ["*"]).join("\n");
+    const cred = h("input", { type: "checkbox", disabled: !editable }); cred.checked = !!s.allow_credentials;
+    el.replaceChildren(...present(
+      editable ? null : h("div", { class: "locked", text: "Set by the config file or environment (" + sec.config_key + "); change it there." }),
+      h("label", {}, "Allowed origins", ta), h("label", { class: "inline" }, cred, "Allow credentialed requests (not with *)")));
+    return { editable, read: () => ({ allowed_origins: ta.value.split(/[\s,]+/).filter(Boolean), allow_credentials: cred.checked }) };
+  };
+
+  // ---------------------------------------------------------------- first-run wizard
+  const runWizard = status => {
+    $("wizard").classList.remove("hidden");
+    const sections = [...document.querySelectorAll("section[data-step]")];
+    const steps = sections.map(s => s.dataset.step);
+    $("bars").replaceChildren(...steps.map(() => h("li")));
+    const bars = [...$("bars").children];
+    let step = 0;
+    const show = name => {
+      step = typeof name === "number" ? name : steps.indexOf(name);
+      sections.forEach((s, i) => s.classList.toggle("active", i === step));
+      bars.forEach((b, i) => b.classList.toggle("done", i <= step));
+      window.scrollTo(0, 0);
+    };
+    const sec = () => sections[step];
+    const err = msg => { sec().querySelector("[data-err]").textContent = msg || ""; };
+    document.querySelectorAll("[data-back]").forEach(b => b.addEventListener("click", () => show(step - 1)));
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("token")) { $("token").value = params.get("token"); history.replaceState(null, "", location.pathname); }
+    $("name").value = status.defaults.instance_name;
+    $("mode").value = status.defaults.registration_mode;
+
+    let checksOK = false, forms = {};
+    const drawChecks = s => {
+      renderChecks($("checks"), s.checks);
+      checksOK = !s.checks.some(c => c.status === "error" && c.name !== "email" && c.name !== "voice");
+      err(checksOK ? "" : "Fix the errors above, then re-run the checks.");
+    };
+    drawChecks(status);
+    $("recheck").addEventListener("click", () => api("GET", "/setup/status").then(drawChecks).catch(e => err(e.message)));
+
+    $("icon").addEventListener("change", () => {
+      const f = $("icon").files[0], img = $("iconPreview");
+      if (f) { img.src = URL.createObjectURL(f); img.style.display = "block"; } else { img.style.display = "none"; }
+    });
+
+    const token = () => $("token").value.trim();
+    const validators = {
+      async checks() {
+        if (!checksOK) return "Fix the errors above, then re-run the checks.";
+        if (!token()) return "Enter the setup token from the server logs.";
+        const s = await api("GET", "/setup/status", undefined, { "Gotalk-Setup-Token": token() });
+        if (!s.config) return "That setup token is not valid. Copy the setup link printed in the server logs.";
+        forms.storage = providerForm($("storageForm"), "storage", s.config.storage);
+        forms.mail = providerForm($("mailForm"), "mail", s.config.mail);
+        forms.voice = providerForm($("voiceForm"), "voice", s.config.voice);
+      },
+      instance() {
+        if (!$("name").value.trim()) return "Give your instance a name.";
+        const f = $("icon").files[0];
+        if (f && f.size > 8 * 1024 * 1024) return "The icon is too large.";
+      },
+      admin() {
+        for (const id of ["username", "email", "password"]) {
+          if (!$(id).checkValidity()) return "Check the " + id + " field: " + $(id).validationMessage;
+        }
+        if ($("password").value !== $("password2").value) return "Passwords do not match.";
+      },
+      storage() {}, mail() {}, voice() {},
+    };
+    const settingsFor = name => {
+      const f = forms[name];
+      if (!f || !f.editable) return undefined;
+      if (name === "mail" && !f.driver()) return undefined;
+      if (name === "voice" && !f.driver()) return undefined;
+      return f.read();
+    };
+    sections.forEach(s => {
+      const next = s.querySelector("[data-next]");
+      if (next) next.addEventListener("click", async () => {
+        next.disabled = true;
+        try {
+          const msg = await validators[s.dataset.step]();
+          if (msg) { err(msg); return; }
+          err("");
+          if (steps[step + 1] === "review") drawReview();
+          show(step + 1);
+        } catch (e) { err(e.message); } finally { next.disabled = false; }
+      });
+      const test = s.querySelector("[data-test]");
+      if (test) test.addEventListener("click", async () => {
+        const name = s.dataset.step, settings = settingsFor(name), results = s.querySelector("[data-results]");
+        if (!settings) { err(forms[name] && !forms[name].editable ? "This section is set by the config file or environment." : "Nothing to test."); return; }
+        test.disabled = true; err(""); renderChecks(results, [{ name, status: "", detail: name === "mail" ? "Sending a test email to " + $("email").value + "…" : "Testing…" }]);
+        try {
+          const body = { setup_token: token(), settings: { [name]: settings } };
+          if (name === "mail" && $("email").value) body.test_email_to = $("email").value;
+          renderChecks(results, (await api("POST", "/setup/test", body)).checks);
+        } catch (e) { results.replaceChildren(); err(e.message); } finally { test.disabled = false; }
+      });
+    });
+
+    const drawReview = () => {
+      const rows = [["Name", $("name").value.trim()], ["Registration", $("mode").selectedOptions[0].textContent],
+        ["Administrator", $("username").value + " <" + $("email").value + ">"], ["Icon", $("icon").files[0] ? $("icon").files[0].name : "none"],
+        ["Storage", forms.storage.summary()], ["Email", forms.mail.summary()], ["Voice", forms.voice.summary()]];
+      $("review").replaceChildren(...rows.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: v })]));
+      $("force").classList.add("hidden");
+    };
+
+    const finish = async skipChecks => {
+      err(""); $("finish").disabled = $("force").disabled = true;
+      const settings = {};
+      for (const name of ["storage", "mail", "voice"]) { const v = settingsFor(name); if (v) settings[name] = v; }
+      try {
+        const res = await api("POST", "/setup", {
+          setup_token: token(), skip_checks: skipChecks, settings,
           instance: { name: $("name").value.trim(), description: $("description").value, registration_mode: $("mode").value },
           admin: { username: $("username").value, email: $("email").value, password: $("password").value },
-        }),
-      });
-      if (!r.ok) {
-        const msg = await problem(r);
-        if (r.status === 403) { show(0); $("err0").textContent = msg; } else { err.textContent = msg; }
-        return;
-      }
-      $("doneUser").textContent = $("username").value;
-      $("doneURL").textContent = location.origin;
-      show(3);
-    } catch { err.textContent = "Could not reach the server."; }
-    finally { $("finish").disabled = false; }
-  });
+        });
+        $("doneUser").textContent = $("username").value;
+        $("doneURL").textContent = location.origin;
+        show("done");
+        const icon = $("icon").files[0];
+        if (icon) {
+          const r = await fetch("/api/v1/instance/icon", { method: "PUT", body: icon,
+            headers: { Authorization: "Bearer " + res.tokens.access_token, "Content-Type": icon.type || "application/octet-stream" } });
+          if (!r.ok) $("doneErr").textContent = "Setup finished, but the icon could not be uploaded: " + await problem(r);
+        }
+      } catch (e) {
+        if (e.status === 403) { show("checks"); err(e.message); return; }
+        err(e.message);
+        if (/check failed/.test(e.message)) $("force").classList.remove("hidden");
+      } finally { $("finish").disabled = $("force").disabled = false; }
+    };
+    $("finish").addEventListener("click", () => finish(false));
+    $("force").addEventListener("click", () => finish(true));
+    show(0);
+  };
 
-  show(0);
+  // ---------------------------------------------------------------- reconfigure
+  const runSettings = () => {
+    document.title = "Gotalk instance settings";
+    $("settings").classList.remove("hidden");
+    let access = "";
+    const call = (method, path, body) => api(method, path, body, { Authorization: "Bearer " + access });
+
+    const titles = { storage: "File storage", mail: "Email", voice: "Voice & video", cors: "CORS (browser origins)" };
+    const drawSections = cfg => {
+      $("sections").replaceChildren(...["storage", "mail", "voice", "cors"].map(name => {
+        const sec = cfg[name], body = h("div"), results = h("ul", { class: "checks" }), error = h("div", { class: "error" });
+        const form = name === "cors" ? corsForm(body, sec) : providerForm(body, name, sec);
+        const when = sec.updated_at ? " · saved " + new Date(sec.updated_at).toLocaleString() : "";
+        const run = async (btn, fn) => {
+          btn.disabled = true; error.textContent = "";
+          try { await fn(); } catch (e) { error.textContent = e.message; } finally { btn.disabled = false; }
+        };
+        const testBtn = h("button", { text: name === "mail" ? "Send test email" : "Test", disabled: !form.editable });
+        testBtn.addEventListener("click", () => run(testBtn, async () => {
+          const res = await call("POST", "/instance/config/test", { settings: { [name]: form.read() }, test_email_to: name === "mail" ? me.email : undefined });
+          renderChecks(results, res.checks);
+        }));
+        const saveBtn = h("button", { class: "primary", text: "Save", disabled: !form.editable });
+        const save = force => run(saveBtn, async () => {
+          const res = await call("PATCH", "/instance/config" + (force ? "?force=true" : ""), { [name]: form.read() });
+          renderChecks(results, res.checks);
+          drawSections(res.config); refreshChecks();
+        }).then(() => { if (/check failed/.test(error.textContent) && confirm(error.textContent + "\n\nSave anyway?")) save(true); });
+        saveBtn.addEventListener("click", () => save(false));
+        const resetBtn = h("button", { text: "Reset to defaults", disabled: sec.source !== "settings" });
+        resetBtn.addEventListener("click", () => run(resetBtn, async () => {
+          if (!confirm("Forget the saved " + titles[name] + " settings? The config file, environment and defaults will apply.")) return;
+          drawSections(await call("DELETE", "/instance/config/" + name)); refreshChecks();
+        }));
+        return h("div", { class: "card" }, h("h2", {}, titles[name], h("span", { class: "badge", text: sec.source + when })), body, results, error,
+          h("div", { class: "actions" }, resetBtn, h("div", { class: "right" }, testBtn, saveBtn)));
+      }));
+    };
+    const refreshChecks = () => call("GET", "/instance/checks").then(r => renderChecks($("liveChecks"), r.checks)).catch(() => {});
+    let me = null;
+    const login = async () => {
+      $("loginErr").textContent = ""; $("loginBtn").disabled = true;
+      try {
+        const res = await api("POST", "/auth/login", { login: $("loginName").value.trim(), password: $("loginPassword").value });
+        if (!res.user.is_instance_admin) throw new Error("This account is not an instance administrator.");
+        access = res.access_token; me = res.user;
+        drawSections(await call("GET", "/instance/config"));
+        refreshChecks();
+        $("login").classList.add("hidden"); $("panels").classList.remove("hidden");
+      } catch (e) { $("loginErr").textContent = e.message; } finally { $("loginBtn").disabled = false; }
+    };
+    $("loginBtn").addEventListener("click", login);
+    $("loginPassword").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+    $("logout").addEventListener("click", () => {
+      fetch("/api/v1/auth/logout", { method: "POST", headers: { Authorization: "Bearer " + access } }).finally(() => location.reload());
+    });
+  };
+
+  api("GET", "/setup/status").then(s => s.setup_required ? runWizard(s) : runSettings())
+    .catch(() => { document.querySelector("main").replaceChildren(h("p", { class: "error", text: "Could not reach the server. Reload to try again." })); });
 })();
 </script>
 </body>

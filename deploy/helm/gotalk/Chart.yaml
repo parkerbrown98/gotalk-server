@@ -1,0 +1,13 @@
+apiVersion: v2
+name: gotalk
+description: A Helm chart for deploying the Gotalk server
+home: https://github.com/parkerbrown98/gotalk-server
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - forum
+  - chat
+  - gotalk
+sources:
+  - https://github.com/parkerbrown98/gotalk-server

@@ -136,6 +136,7 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 	cfg.Redis.URL = o.redisURL
 	cfg.Auth.JWTSecret = ""
 	cfg.Setup = config.Setup{InstanceName: "Gotalk", RegistrationMode: "open"}
+	cfg.Storage.LocalPath = t.TempDir()
 	// Tests make many auth calls from one IP; TestAuthRateLimit lowers this explicitly.
 	cfg.RateLimit.Auth = "1000-M"
 	cfg.RateLimit.Content = "1000-M"
@@ -297,9 +298,12 @@ func TestSetupWizardFlow(t *testing.T) {
 	me := e.expect(200, e.do("GET", "/api/v1/users/@me", access, nil)).obj(t)
 	require.Equal(t, true, me["is_instance_admin"])
 
-	r = e.expect(303, e.do("GET", "/setup", "", nil))
-	require.Equal(t, "/", r.Header.Get("Location"))
-	require.Equal(t, "ready", e.expect(200, e.do("GET", "/readyz", "", nil)).obj(t)["status"])
+	// Once set up, /setup becomes the administrators' reconfigure page.
+	require.Contains(t, string(e.expect(200, e.do("GET", "/setup", "", nil)).Raw), "Gotalk")
+	ready := e.expect(200, e.do("GET", "/readyz", "", nil)).obj(t)
+	require.Equal(t, "degraded", ready["status"], "email is not configured")
+	require.Equal(t, "not_configured", ready["checks"].(map[string]any)["email"])
+	require.Equal(t, "ok", ready["checks"].(map[string]any)["storage"])
 
 	info := e.expect(200, e.do("GET", "/api/v1/instance", "", nil)).obj(t)
 	require.Equal(t, "invite_only", info["registration_mode"])

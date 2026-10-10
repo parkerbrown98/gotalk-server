@@ -98,7 +98,7 @@ func (s *Server) originAllowed(r *http.Request) bool {
 	if u, err := url.Parse(origin); err == nil && strings.EqualFold(u.Host, r.Host) {
 		return true
 	}
-	for _, allowed := range s.Config.Server.CORSAllowedOrigins {
+	for _, allowed := range s.Service.Providers().CORS.AllowedOrigins {
 		if allowed == "*" || strings.EqualFold(allowed, origin) {
 			return true
 		}

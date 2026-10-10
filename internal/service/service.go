@@ -22,7 +22,6 @@ import (
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
 	"github.com/parkerbrown98/gotalk-server/internal/auth"
 	"github.com/parkerbrown98/gotalk-server/internal/config"
-	"github.com/parkerbrown98/gotalk-server/internal/livekit"
 	"github.com/parkerbrown98/gotalk-server/internal/store"
 )
 
@@ -34,14 +33,17 @@ type Service struct {
 	tokens    *auth.TokenIssuer
 	setupDone atomic.Bool
 	events    atomic.Pointer[Publisher]
-	// voice is nil when no LiveKit server is configured.
-	voice *livekit.Client
+	// providers holds the storage, mail and voice backends; settings changes swap it.
+	providers atomic.Pointer[Providers]
+	reloadMu  sync.Mutex
+	health    healthCache
 	// pending buffers what a transaction does after it commits (events to publish, hooks
 	// to run), keyed by its *store.Queries.
 	pending sync.Map
-	// encoder renders webhook payloads; webhookWake nudges the delivery loop.
+	// encoder renders webhook payloads; webhookWake and mailWake nudge the delivery loops.
 	encoder     atomic.Pointer[Encoder]
 	webhookWake chan struct{}
+	mailWake    chan struct{}
 }
 
 // txState is the work a transaction defers until it commits.
@@ -54,17 +56,10 @@ type txState struct {
 }
 
 // New prepares the service, creating the instance settings row (with a generated JWT
-// secret and setup token) on first boot.
+// secret and setup token) on first boot, and opens the storage, mail and voice providers.
 func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger) (*Service, error) {
-	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log, webhookWake: make(chan struct{}, 1)}
-	if cfg.Voice.Enabled() {
-		v := cfg.Voice
-		client, err := livekit.New(v.LiveKitURL, v.LiveKitAPIURL, v.LiveKitAPIKey, v.LiveKitAPISecret)
-		if err != nil {
-			return nil, err
-		}
-		s.voice = client
-	}
+	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log,
+		webhookWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1)}
 
 	secret := make([]byte, 64)
 	if _, err := rand.Read(secret); err != nil {
@@ -92,6 +87,9 @@ func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.
 		jwtSecret = []byte(cfg.Auth.JWTSecret)
 	}
 	s.tokens = auth.NewTokenIssuer(jwtSecret, cfg.Auth.AccessTokenTTL)
+	if err := s.ReloadProviders(ctx); err != nil {
+		return nil, fmt.Errorf("loading instance settings: %w", err)
+	}
 	return s, nil
 }
 

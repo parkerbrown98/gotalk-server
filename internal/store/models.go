@@ -148,6 +148,23 @@ type Draft struct {
 	UpdatedAt time.Time
 }
 
+type EmailToken struct {
+	TokenHash []byte
+	UserID    uuid.UUID
+	Purpose   string
+	Email     string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+}
+
+type InstanceConfig struct {
+	Section   string
+	Settings  []byte
+	UpdatedBy *uuid.UUID
+	UpdatedAt time.Time
+}
+
 type InstanceSetting struct {
 	ID               int16
 	Name             string
@@ -159,6 +176,7 @@ type InstanceSetting struct {
 	JwtSecret        []byte
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	ConfigRevision   int64
 }
 
 type Invite struct {
@@ -169,6 +187,23 @@ type Invite struct {
 	Uses      int32
 	ExpiresAt *time.Time
 	CreatedAt time.Time
+}
+
+type MailOutbox struct {
+	ID            uuid.UUID
+	Kind          string
+	ToAddress     string
+	Subject       string
+	TextBody      string
+	HtmlBody      string
+	Status        string
+	Attempts      int32
+	NextAttemptAt time.Time
+	ExpiresAt     time.Time
+	LockedUntil   *time.Time
+	LastError     string
+	CreatedAt     time.Time
+	CompletedAt   *time.Time
 }
 
 type MemberRole struct {
@@ -408,6 +443,19 @@ type TopicVote struct {
 	Value     int16
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type Upload struct {
+	ID          uuid.UUID
+	StorageKey  string
+	Url         string
+	Purpose     string
+	UploaderID  *uuid.UUID
+	ContentType string
+	SizeBytes   int64
+	Width       int32
+	Height      int32
+	CreatedAt   time.Time
 }
 
 type User struct {

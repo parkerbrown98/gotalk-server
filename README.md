@@ -2,17 +2,20 @@
 
 The backend for [Gotalk](../../README.md): a forum-first, self-hostable alternative to Discord.
 This repository implements **Phase 1 (Foundation)**, **Phase 2 (Forum Core)**,
-**Phase 3 (Real-Time Layer)**, **Phase 4 (Voice)**, **Phase 5 (Platform Maturity)** and
-**Phase 6 (Topic Feeds)** of the
-[backend plan](../../docs/backend-plan.md): accounts, places, roles and permissions, invites
+**Phase 3 (Real-Time Layer)**, **Phase 4 (Voice)**, **Phase 5 (Platform Maturity)**,
+**Phase 6 (Topic Feeds)** and **Phase 7 (Self-Hosting & Cloud Polish)** of the
+[backend plan](docs/backend-plan.md): accounts, places, roles and permissions, invites
 and bans, the first-run setup wizard, boards, topics and posts, ranked topic feeds with
 voting, full-text search, notifications, moderation tools, chat channels and threads, direct and group messages,
 presence, a WebSocket gateway, and voice/video channels routed through a self-hosted
 [LiveKit](https://livekit.io) server, plus the infrastructure to run it anywhere from a
-Raspberry Pi to Kubernetes.
+Raspberry Pi to Kubernetes: pluggable file storage (local disk or any S3-compatible store)
+and email (SMTP, SendGrid, Mailgun, Postmark, Resend, Amazon SES), password reset and email
+verification, image uploads, backups, and a Helm chart.
 
 - Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis and LiveKit optional
-- Browser setup wizard **or** fully headless setup from environment variables
+- Browser setup wizard **or** fully headless setup from environment variables; the same page
+  lets administrators change storage, email, voice and CORS later
 - Any client can point at any instance: discovery via `/.well-known/gotalk-instance`
   and `GET /api/v1/instance`
 - OpenAPI 3.1 spec and interactive docs served at `/api/v1/docs`; real-time events over a
@@ -26,24 +29,57 @@ docker compose logs gotalk     # copy the setup link it prints
 ```
 
 Open the link (`http://localhost:8080/setup?token=…`), and the wizard walks you through
-pre-flight checks, naming your instance, and creating the administrator account. That's it.
+pre-flight checks, naming your instance, the administrator account, file storage (local disk
+or S3-compatible), email (or "skip for now") and optional voice. Each step can be tested live
+(the email step sends you a test message) before you finish. That's it.
 
 For anything beyond trying it out locally, copy [.env.example](.env.example) to `.env` and
 set at least `POSTGRES_PASSWORD` and `GOTALK_SERVER_PUBLIC_URL`.
+
+To try email without a real provider, start the bundled [Mailpit](https://mailpit.axllent.org)
+and read the messages at <http://localhost:8025>:
+
+```sh
+GOTALK_MAIL_DRIVER=smtp GOTALK_MAIL_SMTP_HOST=mailpit GOTALK_MAIL_SMTP_PORT=1025 \
+GOTALK_MAIL_SMTP_TLS=none GOTALK_MAIL_FROM="Gotalk <noreply@localhost>" \
+docker compose --profile mail up -d
+```
 
 ### Skip the browser (headless setup)
 
 Set all three admin variables and setup completes on boot:
 
 ```sh
-GOTALK_SETUP_ADMIN_USERNAME=admin \
-GOTALK_SETUP_ADMIN_EMAIL=admin@example.com \
+GOTALK_SETUP_ADMIN_USERNAME=operator \
+GOTALK_SETUP_ADMIN_EMAIL=operator@example.com \
 GOTALK_SETUP_ADMIN_PASSWORD=change-me-please \
 docker compose up -d
 ```
 
-Or run it once as a job (e.g. a Kubernetes `Job` or CI step) with `gotalk setup`. Both are
-idempotent: on an already configured instance they do nothing.
+(`admin`, `root` and a few other names are reserved.) Or run it once as a job (e.g. a
+Kubernetes `Job` or CI step) with `gotalk setup`, which also runs the pre-flight checks first
+and refuses to continue if one fails (`--skip-checks` overrides). Both are idempotent: on an
+already configured instance they do nothing, unless asked to:
+
+- `gotalk setup --reset` re-applies the `setup.*` values that are set: instance name,
+  description and registration mode, and the administrator account, which is created if
+  missing, or promoted to administrator with its password reset and its sessions and personal
+  access tokens revoked. This is also the way back in after losing the admin password.
+- `gotalk setup --reset-settings` forgets storage, email, voice and CORS settings saved in the
+  browser, so the config file, environment and defaults apply again.
+
+### Changing settings later
+
+Once set up, `/setup` becomes the instance settings page: sign in as an instance
+administrator to change file storage, email, voice and CORS, test them (the email section
+sends you a test message) and see live health. The same is available through the API
+(`GET/PATCH /instance/config`, see below). Settings saved this way are stored in the
+database and apply to every replica within 15 seconds, without a restart.
+
+A section whose enabling key is set in the config file or environment (`storage.driver`,
+`mail.driver`, `voice.livekit_url`, `server.cors_allowed_origins`) is managed there and shown
+read-only in the browser; that is how infrastructure-as-code deployments keep settings in one
+place.
 
 ### Voice channels
 
@@ -80,13 +116,109 @@ boot.
 
 | Command | Purpose |
 |---|---|
-| `gotalk serve` | Run the server (default when no command is given) |
+| `gotalk serve` | Run the server (default when no command is given). Logs one pre-flight line per dependency at boot |
 | `gotalk migrate` / `gotalk migrate status` | Apply migrations / show schema version |
-| `gotalk setup` | Complete first-run setup from config/env, then exit |
+| `gotalk setup [--reset] [--reset-settings] [--skip-checks]` | Complete first-run setup from config/env, then exit (see above) |
+| `gotalk check` | Run the pre-flight checks (database, Redis, public URL, storage, email, voice) with a fix-it hint per problem; exits 1 if any fails |
+| `gotalk backup [--output FILE\|-] [--no-media] [--upload [--keep N]]` | Write a backup archive; see [Backups](#backup-and-restore) |
+| `gotalk backup list` | List backups stored in the storage backend |
+| `gotalk restore --input FILE\|- \| --from-storage NAME [--force] [--no-media]` | Restore a backup |
 | `gotalk healthcheck` | Exit 0 if the local server is healthy (used by the image's `HEALTHCHECK`) |
 | `gotalk version` | Print the version |
 
 All commands accept `--config path/to/gotalk.yaml` (alias `--from-file`).
+
+## File storage and email
+
+Both are plugins chosen by name, configured in the setup wizard, the settings page, the
+config file or the environment.
+
+**Storage** keeps uploaded images (and backups made with `backup --upload`):
+
+- `local` (default): a directory, `/data` in the container image (a named volume in Compose,
+  a PersistentVolumeClaim in the Helm chart). It is not shared between machines, so more than
+  one replica needs `s3` or a ReadWriteMany volume.
+- `s3`: any S3-compatible store: AWS S3 (leave the endpoint empty and set the region),
+  Cloudflare R2 (region `auto`), MinIO, SeaweedFS and Backblaze B2 (set
+  `s3_force_path_style` for MinIO and SeaweedFS), Google Cloud Storage through its XML API with
+  HMAC keys. Requests are signed with AWS Signature V4; the access key needs to read, write,
+  list and delete objects under the prefix.
+
+By default Gotalk serves uploads itself under `/media/…` (with immutable caching headers, a
+sandboxing CSP and only for files it recorded as uploads, so backups in the same bucket stay
+private). Set `storage.public_url` to a CDN or public bucket URL to link there instead.
+
+**Email** sends password reset links and email verification:
+
+| Driver | Settings |
+|---|---|
+| `smtp` | `smtp_host`, `smtp_port`, `smtp_tls` (`starttls` default, `tls` for implicit TLS on 465, `none`), `smtp_username`, `smtp_password`; PLAIN, LOGIN (Office 365) and CRAM-MD5 auth |
+| `sendgrid` | `api_key` (needs the Mail Send permission) |
+| `mailgun` | `api_key`, `domain`; `api_url: https://api.eu.mailgun.net` for the EU region |
+| `postmark` | `api_key` (server token) |
+| `resend` | `api_key` (sending-only keys work) |
+| `ses` | `region`, `access_key_id`, `secret_access_key` (Amazon SES v2 API) |
+| `log` | Development only: emails are written to the server log instead of being sent |
+
+All need `mail.from`. Messages go through an outbox in PostgreSQL written in the same
+transaction as the action that sends them, and are delivered by any replica with retries
+(15 seconds up to 30 minutes, six attempts). Message bodies (which contain single-use links)
+are erased once sent or given up on, and links that expire before they could be sent are
+dropped. Without email, the instance works, but reports `degraded` with `email` in
+`degraded_features`, and the password reset and verification endpoints answer `503`.
+
+Third-party drivers can be added in Go with `storage.Register` / `mail.Register` (see
+[internal/storage](internal/storage) and [internal/mail](internal/mail)).
+
+## Backup and restore
+
+`gotalk backup` writes one `.tar.gz` holding every table (as PostgreSQL `COPY` data from a
+single consistent snapshot, so the server can keep running) and the uploaded files, read
+through the storage driver. No `pg_dump` is needed, and an archive taken from local storage
+restores into S3 and the other way round, which also makes it the way to move between storage
+backends.
+
+```sh
+gotalk backup                               # gotalk-backup-<UTC time>.tar.gz in the current directory
+gotalk backup --output - > backup.tar.gz    # to stdout
+gotalk backup --upload --keep 14            # into the storage backend under backups/, keeping the 14 newest
+gotalk backup list
+```
+
+To restore, stop the server and run `gotalk restore` against an empty database (or one with a
+fresh, never set-up instance); `--force` replaces an existing instance's data. The archive is
+verified in full first (checksums, every table present with the recorded row count), so a
+damaged file never touches the database. The database is then restored in one transaction
+with foreign keys re-validated, migrated to the running version, and the media copied into the
+configured storage.
+
+```sh
+gotalk restore --input backup.tar.gz
+docker compose exec -T gotalk /gotalk restore --input - < backup.tar.gz   # from the host
+gotalk restore --from-storage gotalk-backup-20260101-030000.tar.gz --force
+```
+
+Archives contain everything in the database, including password hashes and secrets saved
+in the settings page; store them accordingly. In Kubernetes, the Helm chart's `backup`
+values schedule `backup --upload` as a CronJob.
+
+## Deploying to Kubernetes
+
+- **Helm:** [deploy/helm/gotalk](deploy/helm/gotalk) (see its README). It supports managed
+  PostgreSQL/Redis via URLs or existing Secrets, S3 or a PVC for storage, every mail driver,
+  LiveKit, an Ingress, autoscaling, a PodDisruptionBudget, a backup CronJob, a hardened pod
+  (non-root, read-only root filesystem with an `emptyDir` at `/tmp` for backups), and an
+  optional built-in PostgreSQL and Redis for evaluation. It refuses configurations that would
+  break at runtime (no database, several replicas with unshared local storage or without Redis).
+- **Plain manifests:** [deploy/kubernetes](deploy/kubernetes), a Kustomize base for two
+  replicas behind an Ingress with managed PostgreSQL, Redis and S3, configured from a
+  `gotalk.env` file turned into a Secret.
+
+Both pass `helm lint`/`kubeconform` in CI. For the gateway WebSocket, raise the ingress
+idle timeout above the 30 second heartbeat (for ingress-nginx,
+`nginx.ingress.kubernetes.io/proxy-read-timeout` and `proxy-send-timeout`). The setup link is
+printed in the pod log (`kubectl logs deploy/gotalk`), or set the `setup.admin` values for
+headless setup.
 
 ## Deploying to the cloud
 
@@ -98,17 +230,25 @@ The same binary is built for unattended, horizontally scaled deployments:
 - **Secrets from files.** Append `_FILE` to any variable to read it from a mounted file,
   e.g. `GOTALK_SETUP_ADMIN_PASSWORD_FILE=/run/secrets/admin-password`. libpq variables such as
   `PGPASSWORD` also work.
-- **Managed dependencies.** Point `GOTALK_DATABASE_URL` at any managed PostgreSQL and
-  `GOTALK_REDIS_URL` at any managed Redis. The Compose services are a local convenience.
+- **Managed dependencies.** Point `GOTALK_DATABASE_URL` at any managed PostgreSQL,
+  `GOTALK_REDIS_URL` at any managed Redis, `GOTALK_STORAGE_*` at any S3-compatible bucket and
+  `GOTALK_MAIL_*` at a hosted email provider. The Compose services are a local convenience.
+  Empty variables are ignored, so Compose files and templates can pass optional ones through.
 - **Multiple replicas.** Migrations take a PostgreSQL advisory lock so replicas can boot
   together, setup completion is race-safe, and the JWT secret is shared through the
   database. Set `GOTALK_REDIS_URL` so rate limits, presence and gateway events are shared
   across replicas. Without Redis, a client connected to one replica would miss events
-  caused by requests served by another.
-- **Probes.** `GET /healthz` is liveness (process is serving). `GET /readyz` is readiness
-  (database and Redis reachable); it reports `awaiting_setup` with HTTP 200 so the wizard
-  stays reachable through your load balancer, and `degraded` (still HTTP 200) when LiveKit is
-  configured but unreachable, since only voice is affected. SIGTERM drains in-flight requests and closes
+  caused by requests served by another. Use S3 storage (or a shared volume) so every replica
+  sees the same uploads. Settings changed in the browser reach every replica within 15
+  seconds.
+- **Probes.** `GET /healthz` is liveness (process is serving; its `state` field says
+  `awaiting_setup`, `healthy` or `degraded`). `GET /readyz` is readiness: HTTP 503 when
+  PostgreSQL or Redis is unreachable; otherwise HTTP 200 with `awaiting_setup` (so the wizard
+  stays reachable through your load balancer), `ready`, or `degraded` when an optional
+  feature fails: LiveKit unreachable, storage not writable, or email not configured or
+  rejecting the connection. Storage and email results are cached (1 and 5 minutes) so probes
+  stay cheap. `GET /api/v1/instance` carries the same `status` and `degraded_features` for
+  clients. SIGTERM drains in-flight requests and closes
   gateway connections with code `1001` so clients reconnect to another replica.
 - **Reverse proxies.** TLS is expected to terminate in front of Gotalk. Set
   `GOTALK_SERVER_TRUST_PROXY=true` so client IPs and the public URL are taken from
@@ -130,7 +270,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `server.public_url` | *(derived per request)* | External base URL, e.g. `https://forum.example.com` |
 | `server.trust_proxy` | `false` | Honor `X-Forwarded-*` from trusted proxies |
 | `server.trusted_proxies` | loopback + private ranges | CIDRs allowed to set forwarding headers |
-| `server.cors_allowed_origins` | `*` | Origins allowed to call the API and open gateway connections (any client by default) |
+| `server.cors_allowed_origins` | `*` | Origins allowed to call the API and open gateway connections (any client by default); setting it makes CORS read-only in the browser |
 | `server.cors_allow_credentials` | `false` | Allow credentialed CORS (cannot be combined with `*`) |
 | `server.shutdown_timeout` | `20s` | Graceful shutdown window |
 | `database.url` | local `gotalk` database | PostgreSQL URL or keyword/value DSN |
@@ -162,8 +302,24 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `webhooks.allow_private_networks` | `false` | Let webhooks reach loopback, private and link-local addresses. Keep off unless every place manager is trusted |
 | `webhooks.timeout` | `10s` | Timeout of each webhook delivery attempt |
 | `webhooks.delivery_retention` | `168h` | How long finished webhook deliveries stay in the delivery log |
+| `storage.driver` | `local` | `local` or `s3`; setting it makes storage read-only in the browser |
+| `storage.local_path` | `data` (`/data` in the image) | Directory of the `local` driver |
+| `storage.s3_endpoint` | AWS S3 in `s3_region` | S3 API endpoint (R2, MinIO, B2, GCS, …) |
+| `storage.s3_region` | `us-east-1` | Signing region (`auto` for R2) |
+| `storage.s3_bucket` / `s3_prefix` | | Bucket, and an optional key prefix inside it |
+| `storage.s3_access_key_id` / `s3_secret_access_key` | | S3 credentials |
+| `storage.s3_force_path_style` | `false` | Path-style URLs (MinIO, SeaweedFS, most self-hosted stores) |
+| `storage.public_url` | *(served under `/media/`)* | Base URL of a CDN or public bucket serving uploads |
+| `uploads.max_size` | `8388608` | Largest accepted upload in bytes (64 KiB–100 MiB) |
+| `mail.driver` | *(email off)* | `smtp`, `sendgrid`, `mailgun`, `postmark`, `resend`, `ses` or `log`; setting it makes email read-only in the browser |
+| `mail.from` | | Sender, e.g. `Gotalk <noreply@forum.example.com>` |
+| `mail.smtp_host` / `smtp_port` / `smtp_tls` | / `587` / `starttls` | SMTP server; `smtp_tls` is `starttls`, `tls` or `none` |
+| `mail.smtp_username` / `smtp_password` | | SMTP credentials |
+| `mail.api_key` / `api_url` / `domain` | | API provider key, base URL override, Mailgun domain |
+| `mail.region` / `access_key_id` / `secret_access_key` | | Amazon SES |
 
-Rates use `<limit>-<period>` where period is `S`, `M`, `H`, or `D`.
+Rates use `<limit>-<period>` where period is `S`, `M`, `H`, or `D`. CORS origins may be `*`,
+exact origins (`https://app.example.com`) or contain one wildcard (`https://*.example.com`).
 
 ## API overview
 
@@ -182,6 +338,37 @@ support it answers `400` instead of failing call by call.
 token (send as `Authorization: Bearer …`) and a single-use refresh token. `POST /auth/refresh`
 rotates both; presenting an already-used refresh token revokes the whole session. Sessions
 can be listed and revoked under `/users/@me/sessions`.
+
+**Password reset and email verification** (when email is configured; `features.password_reset`
+and `features.email_verification` in `/instance`). `POST /auth/password-reset` with an email
+address sends a link to `<instance>/reset-password?token=…` (valid for an hour, once), and
+always answers `202` so it cannot reveal who has an account; repeated requests within a
+minute send nothing more. That page (or any client) calls `POST /auth/password-reset/confirm`
+with the token and new password, which signs out every session and revokes personal access
+tokens. Registration sends a verification link (`<instance>/verify-email?token=…`, valid for 48
+hours) that calls `POST /auth/verify-email`; `POST /users/@me/email/verification` sends a new
+one. Links use `server.public_url` when set. `email_verified` is on `GET /users/@me`.
+
+**Uploads.** Avatars (`PUT /users/@me/avatar`), place icons and banners
+(`PUT /places/{place}/icon`, `/banner`, `MANAGE_PLACE`) and the instance icon
+(`PUT /instance/icon`, administrators) take the raw image as the request body: PNG, JPEG, GIF
+or WebP up to `limits.upload_size` bytes and `limits.upload_max_side` pixels per side. EXIF,
+XMP and text metadata (such as a photo's GPS position) are stripped without re-encoding the
+image. The response carries the new URL; `DELETE` on the same paths removes the image. Replaced
+files are deleted right away, and files nothing refers to any more (for example after an
+account deletion) after about an hour. URLs set directly with `PATCH` keep working.
+
+**Instance settings (administrators).** `GET /instance/config` shows storage, email, voice and
+CORS with their `source` (`default`, `config` or `settings`), whether they are editable and
+which secrets are set (secrets are never returned). `PATCH /instance/config` takes any of
+`storage`, `mail`, `voice`, `cors`, checks them live, and saves and applies them on every
+replica; a failing check answers `422` unless `?force=true`. Secrets left empty keep their
+current value. `DELETE /instance/config/{section}` forgets saved settings,
+`POST /instance/config/test` checks settings without saving (optionally sending a test email),
+and `GET /instance/checks` runs the pre-flight checks. These need a login session, not an API
+token. During first-run setup, `GET /setup/status` with a `Gotalk-Setup-Token` header and
+`POST /setup/test` do the same with the setup token, and `POST /setup` accepts a `settings`
+object.
 
 **API tokens.** For scripts and integrations, `POST /users/@me/tokens` creates a personal
 access token (`gtp_…`, shown once, stored only as a hash) with scopes: `read` allows `GET`
@@ -475,10 +662,10 @@ Sessions cannot be resumed; after reconnecting, clients refetch what they need w
 
 | Area | Endpoints |
 |---|---|
-| Instance | `GET/PATCH /instance`, `GET /permissions`, `GET /setup/status`, `POST /setup` |
-| Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` |
-| Users | `GET/PATCH/DELETE /users/@me`, `POST /users/@me/password`, `GET /users/@me/sessions`, `DELETE /users/@me/sessions/{id}`, `GET /users/@me/places`, `GET /users/{username}` |
-| Places | `GET/POST /places`, `GET/PATCH/DELETE /places/{place}`, `POST /places/{place}/join`, `/leave`, `/transfer`, `GET /places/{place}/permissions/@me` |
+| Instance | `GET/PATCH /instance`, `PUT/DELETE /instance/icon`, `GET/PATCH /instance/config`, `DELETE /instance/config/{section}`, `POST /instance/config/test`, `GET /instance/checks`, `GET /permissions`, `GET /setup/status`, `POST /setup`, `POST /setup/test` |
+| Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset`, `/auth/password-reset/confirm`, `/auth/verify-email` |
+| Users | `GET/PATCH/DELETE /users/@me`, `PUT/DELETE /users/@me/avatar`, `POST /users/@me/password`, `POST /users/@me/email/verification`, `GET /users/@me/sessions`, `DELETE /users/@me/sessions/{id}`, `GET /users/@me/places`, `GET /users/{username}` |
+| Places | `GET/POST /places`, `GET/PATCH/DELETE /places/{place}`, `PUT/DELETE /places/{place}/icon`, `/banner`, `POST /places/{place}/join`, `/leave`, `/transfer`, `GET /places/{place}/permissions/@me` |
 | Members | `GET /places/{place}/members?q=`, `GET/PATCH/DELETE /places/{place}/members/{userID}`, `PUT/DELETE …/members/{userID}/roles/{roleID}` |
 | Bans | `GET /places/{place}/bans`, `PUT/DELETE /places/{place}/bans/{userID}` |
 | Roles | `GET/POST /places/{place}/roles`, `PATCH/DELETE /places/{place}/roles/{roleID}` |
@@ -530,15 +717,21 @@ generated code is out of date.
 
 | Path | Contents |
 |---|---|
-| `cmd/gotalk` | CLI entry point: serve, migrate, setup, healthcheck |
-| `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway |
-| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`, webhook queueing and delivery in `webhooks.go`) |
+| `cmd/gotalk` | CLI entry point: serve, migrate, setup, check, backup, restore, healthcheck |
+| `internal/api` | HTTP layer: chi router, huma operations, middleware, DTOs, WebSocket gateway, `/media` serving |
+| `internal/service` | Business logic shared by the API and CLI (forum permissions are evaluated in `forum.go`, chat permissions in `channels.go`, voice state and LiveKit reconciliation in `voice.go`, webhook queueing and delivery in `webhooks.go`, provider settings and reloading in `providers.go`, pre-flight checks in `health.go`, the email outbox, password reset and verification in `mailflows.go`, uploads in `uploads.go`) |
 | `internal/realtime` | Gateway event routing (hub), Redis or in-memory event broker, and presence store |
 | `internal/livekit` | Minimal LiveKit client: participant tokens, RoomService calls, webhook verification |
+| `internal/storage` | Storage driver registry and the `local` and `s3` drivers |
+| `internal/mail` | Mail driver registry and the `smtp`, `sendgrid`, `mailgun`, `postmark`, `resend`, `ses` and `log` drivers |
+| `internal/sigv4` | AWS Signature V4 signing shared by the S3 and SES drivers |
+| `internal/media` | Image validation and lossless metadata stripping |
+| `internal/backup` | Backup archives: consistent `COPY` dump plus media, verification and restore |
 | `internal/store` | sqlc-generated, type-safe queries (do not edit by hand) |
 | `internal/database` | Connection handling and embedded goose migrations |
 | `internal/permissions` | Permission bits, role hierarchy, and board and channel overwrite rules |
 | `internal/auth` | Argon2id passwords, JWT access tokens, refresh tokens, API tokens |
 | `internal/config` | Layered configuration and validation |
 | `internal/ratelimit` | Rate limit tiers backed by Redis or memory |
-| `internal/web` | Embedded landing page and setup wizard |
+| `internal/web` | Embedded landing page, setup wizard / settings page, password reset and email verification pages |
+| `deploy/helm/gotalk`, `deploy/kubernetes` | Helm chart and Kustomize manifests |

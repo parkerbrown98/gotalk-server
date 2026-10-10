@@ -1,0 +1,248 @@
+# Default values for Gotalk.
+# This chart is production-oriented by default: external PostgreSQL is required,
+# Redis is required when more than one replica is used, and local media storage uses a PVC.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/parkerbrown98/gotalk-server
+  # Defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Optional envFrom-friendly Secret containing GOTALK_* variables (for example
+# GOTALK_AUTH_JWT_SECRET, GOTALK_STORAGE_S3_SECRET_ACCESS_KEY, or GOTALK_MAIL_API_KEY).
+# When set, the chart does not create its managed secret for values below.
+existingSecret: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+deployment:
+  podAnnotations: {}
+  terminationGracePeriodSeconds: 30
+  revisionHistoryLimit: 3
+
+server:
+  publicUrl: ""
+  trustProxy: true
+  trustedProxies: ""
+  corsAllowedOrigins: ""
+
+log:
+  format: json
+  level: info
+
+# database.url may be a PostgreSQL URL or libpq keyword/value DSN.
+# Alternatively set database.existingSecret.name/key or enable postgresql.enabled for evaluation.
+database:
+  url: ""
+  existingSecret:
+    name: ""
+    key: GOTALK_DATABASE_URL
+
+# Redis is optional for one replica, but required for >1 replica so gateway events,
+# presence, and rate limits are shared across pods.
+redis:
+  url: ""
+  existingSecret:
+    name: ""
+    key: GOTALK_REDIS_URL
+  enabled: false
+  image:
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Minimal built-in PostgreSQL for quick evaluation only. Use managed PostgreSQL in production.
+postgresql:
+  enabled: false
+  image:
+    repository: postgres
+    tag: 17-alpine
+    pullPolicy: IfNotPresent
+  auth:
+    username: gotalk
+    database: gotalk
+    password: gotalk
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+auth:
+  jwtSecret: ""
+  existingSecret:
+    name: ""
+    key: GOTALK_AUTH_JWT_SECRET
+
+setup:
+  instanceName: Gotalk
+  registrationMode: open
+  admin:
+    username: ""
+    email: ""
+    password: ""
+    existingSecret:
+      name: ""
+      passwordKey: GOTALK_SETUP_ADMIN_PASSWORD
+
+storage:
+  # local uses /data. For more than one replica, use s3 or a ReadWriteMany PVC.
+  driver: local
+  publicUrl: ""
+  uploadsMaxSize: ""
+  local:
+    path: /data
+  s3:
+    endpoint: ""
+    region: ""
+    bucket: ""
+    prefix: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+    forcePathStyle: ""
+    existingSecret:
+      name: ""
+      accessKeyIdKey: GOTALK_STORAGE_S3_ACCESS_KEY_ID
+      secretAccessKeyKey: GOTALK_STORAGE_S3_SECRET_ACCESS_KEY
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  size: 10Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+
+mail:
+  driver: ""
+  from: ""
+  smtp:
+    host: ""
+    port: ""
+    username: ""
+    password: ""
+    tls: ""
+  apiKey: ""
+  apiUrl: ""
+  domain: ""
+  region: ""
+  accessKeyId: ""
+  secretAccessKey: ""
+  existingSecret:
+    name: ""
+    passwordKey: GOTALK_MAIL_SMTP_PASSWORD
+    apiKeyKey: GOTALK_MAIL_API_KEY
+    accessKeyIdKey: GOTALK_MAIL_ACCESS_KEY_ID
+    secretAccessKeyKey: GOTALK_MAIL_SECRET_ACCESS_KEY
+
+voice:
+  livekitUrl: ""
+  livekitApiUrl: ""
+  livekitApiKey: ""
+  livekitApiSecret: ""
+  existingSecret:
+    name: ""
+    apiKeyKey: GOTALK_VOICE_LIVEKIT_API_KEY
+    apiSecretKey: GOTALK_VOICE_LIVEKIT_API_SECRET
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # For nginx and the /api/v1/gateway WebSocket, set annotations such as:
+  # nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  # nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: gotalk.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    enabled: true
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+extraEnv: []
+extraEnvFrom: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: ""
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  keep: 14
+  noMedia: false
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

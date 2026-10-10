@@ -10,10 +10,13 @@ ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/gotalk ./cmd/gotalk
+RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 # Distroless: no shell or package manager, runs as an unprivileged user.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/gotalk /gotalk
+COPY --from=build --chown=65532:65532 /out/data /data
+ENV GOTALK_STORAGE_LOCAL_PATH=/data
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 CMD ["/gotalk", "healthcheck"]
 ENTRYPOINT ["/gotalk"]

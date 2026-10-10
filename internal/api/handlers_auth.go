@@ -65,6 +65,7 @@ func (s *Server) registerAuth() {
 				Password:       in.Body.Password,
 				InviteCode:     in.Body.InviteCode,
 				AcceptPolicies: in.Body.AcceptPolicies,
+				BaseURL:        baseURLFrom(ctx),
 			}, clientFrom(ctx))
 			if err != nil {
 				return nil, err

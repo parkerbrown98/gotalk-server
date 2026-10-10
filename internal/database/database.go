@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -95,6 +97,43 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
 		log.Info("applied migration", "version", r.Source.Version, "file", r.Source.Path, "duration", r.Duration.String())
 	}
 	return nil
+}
+
+// MigrateTo applies pending migrations up to and including version.
+func MigrateTo(ctx context.Context, pool *pgxpool.Pool, version int64, log *slog.Logger) error {
+	p, err := newProvider(pool)
+	if err != nil {
+		return fmt.Errorf("preparing migrations: %w", err)
+	}
+	results, err := p.UpTo(ctx, version)
+	if err != nil {
+		return fmt.Errorf("applying migrations: %w", err)
+	}
+	for _, r := range results {
+		log.Info("applied migration", "version", r.Source.Version, "file", r.Source.Path)
+	}
+	return nil
+}
+
+// LatestVersion is the newest schema version this build knows.
+func LatestVersion() (int64, error) {
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		return 0, err
+	}
+	var latest int64
+	for _, e := range entries {
+		num, _, ok := strings.Cut(e.Name(), "_")
+		if !ok {
+			continue
+		}
+		v, err := strconv.ParseInt(num, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("unexpected migration file %q", e.Name())
+		}
+		latest = max(latest, v)
+	}
+	return latest, nil
 }
 
 type MigrationStatus struct {

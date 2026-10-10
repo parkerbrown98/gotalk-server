@@ -194,6 +194,7 @@ func TestGatewayHandshake(t *testing.T) {
 
 	// Browsers from origins outside the CORS list are refused.
 	e.cfg.Server.CORSAllowedOrigins = []string{"https://app.example.com"}
+	require.NoError(t, e.svc.ReloadProviders(context.Background()))
 	_, status, err := dialGateway(e, map[string][]string{"Origin": {"https://evil.example"}})
 	require.Error(t, err)
 	require.Equal(t, http.StatusForbidden, status)

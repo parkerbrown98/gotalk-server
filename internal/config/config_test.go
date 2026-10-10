@@ -110,6 +110,59 @@ func TestExampleConfigIsValid(t *testing.T) {
 	assert.Len(t, cfg.Server.TrustedProxyPrefixes(), 6)
 	assert.Equal(t, defaults()["database.url"], cfg.Database.URL, "empty url in the example keeps the default")
 	assert.False(t, cfg.Voice.Enabled(), "voice stays off until a LiveKit URL is set")
+	assert.Equal(t, "local", cfg.Storage.Driver)
+	assert.False(t, cfg.Mail.Enabled())
+	assert.False(t, cfg.IsSet("mail.driver"), "empty values in the file do not count as configured")
+}
+
+func TestStorageMailAndUploadsConfig(t *testing.T) {
+	cfg, err := load("", environ())
+	require.NoError(t, err)
+	assert.Equal(t, "local", cfg.Storage.Driver)
+	assert.Equal(t, "data", cfg.Storage.LocalPath)
+	assert.EqualValues(t, 8<<20, cfg.Uploads.MaxSize)
+	assert.False(t, cfg.Mail.Enabled())
+	assert.False(t, cfg.IsSet("storage.driver"), "defaults are not explicit")
+
+	cfg, err = load("", environ(
+		"GOTALK_STORAGE_DRIVER=s3",
+		"GOTALK_STORAGE_S3_BUCKET=media",
+		"GOTALK_STORAGE_S3_ENDPOINT=http://minio:9000",
+		"GOTALK_STORAGE_S3_ACCESS_KEY_ID=key",
+		"GOTALK_STORAGE_S3_SECRET_ACCESS_KEY=secret",
+		"GOTALK_STORAGE_S3_FORCE_PATH_STYLE=true",
+		"GOTALK_MAIL_DRIVER=smtp",
+		"GOTALK_MAIL_FROM=Gotalk <noreply@example.com>",
+		"GOTALK_MAIL_SMTP_HOST=mail.example.com",
+		"GOTALK_MAIL_SMTP_PORT=2525",
+		"GOTALK_UPLOADS_MAX_SIZE=1048576",
+		// Compose passes optional variables through empty; they must not clobber defaults.
+		"GOTALK_STORAGE_LOCAL_PATH=",
+		"GOTALK_LOG_LEVEL=",
+	))
+	require.NoError(t, err)
+	assert.Equal(t, "s3", cfg.Storage.Driver)
+	assert.True(t, cfg.Storage.S3ForcePathStyle)
+	assert.Equal(t, "data", cfg.Storage.LocalPath)
+	assert.Equal(t, "info", cfg.Log.Level)
+	assert.Equal(t, 2525, cfg.Mail.SMTPPort)
+	assert.EqualValues(t, 1<<20, cfg.Uploads.MaxSize)
+	assert.True(t, cfg.IsSet("storage.driver"))
+	assert.True(t, cfg.IsSet("mail.driver"))
+	assert.False(t, cfg.IsSet("storage.local_path"))
+
+	_, err = load("", environ(
+		"GOTALK_STORAGE_DRIVER=floppy",
+		"GOTALK_MAIL_DRIVER=smtp",
+		"GOTALK_UPLOADS_MAX_SIZE=10",
+		"GOTALK_SERVER_CORS_ALLOWED_ORIGINS=https://app.example.com/,https://*.*.example.com",
+	))
+	require.Error(t, err)
+	for _, want := range []string{"floppy", "mail.smtp_host", "uploads.max_size", "https://app.example.com/", "at most one wildcard"} {
+		assert.ErrorContains(t, err, want)
+	}
+	_, err = load("", environ("GOTALK_SERVER_CORS_ALLOWED_ORIGINS=https://*.example.com,http://localhost:3000"))
+	require.NoError(t, err)
 }
 
 func TestVoiceConfig(t *testing.T) {

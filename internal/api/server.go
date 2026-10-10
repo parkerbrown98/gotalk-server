@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -58,6 +59,7 @@ type Server struct {
 	stopBackground context.CancelFunc
 	background     sync.WaitGroup
 	closeOnce      sync.Once
+	corsState      atomic.Pointer[corsState]
 }
 
 // New builds the full HTTP handler and starts the real-time gateway and background loops.
@@ -79,6 +81,9 @@ func New(d Deps) (*Server, error) {
 	s.stopBackground = stop
 	s.background.Go(func() { d.Service.RunVoiceMaintenance(bg) })
 	s.background.Go(func() { d.Service.RunWebhookDelivery(bg) })
+	s.background.Go(func() { d.Service.RunMailDelivery(bg) })
+	s.background.Go(func() { d.Service.RunMaintenance(bg) })
+	s.background.Go(func() { d.Service.RunConfigWatcher(bg) })
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -86,15 +91,7 @@ func New(d Deps) (*Server, error) {
 	r.Use(s.requestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: d.Config.Server.CORSAllowedOrigins,
-		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-		AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-Id", APIVersionHeader},
-		ExposedHeaders: []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Tier",
-			"Retry-After", "X-Request-Id", "Link", APIVersionHeader},
-		AllowCredentials: d.Config.Server.CORSAllowCredentials,
-		MaxAge:           300,
-	}))
+	r.Use(s.cors)
 	r.Use(s.setupGate)
 
 	r.Get("/healthz", s.handleHealthz)
@@ -102,6 +99,10 @@ func New(d Deps) (*Server, error) {
 	r.Get("/.well-known/gotalk-instance", s.handleWellKnown)
 	r.Get("/", s.handleLanding)
 	r.Get("/setup", s.handleSetupPage)
+	r.Get("/reset-password", s.handlePage("reset-password.html"))
+	r.Get("/verify-email", s.handlePage("verify-email.html"))
+	r.Get("/media/*", s.handleMedia)
+	r.Head("/media/*", s.handleMedia)
 
 	r.Route(APIPrefix, func(r chi.Router) {
 		r.Use(apiVersion)
@@ -109,6 +110,7 @@ func New(d Deps) (*Server, error) {
 		r.Post(voiceWebhookPath, s.handleVoiceWebhook)
 
 		cfg := huma.DefaultConfig("Gotalk API", d.Version)
+		cfg.Components.Schemas = huma.NewMapRegistry("#/components/schemas/", schemaNamer)
 		cfg.Info.Description = "REST API for a Gotalk instance. Any client may target any instance; " +
 			"start with GET /instance to discover capabilities. Authenticate with a session access token, " +
 			"a personal access token (gtp_…) or a bot token (gtb_…) as a Bearer token."
@@ -147,10 +149,40 @@ func New(d Deps) (*Server, error) {
 		s.registerDeveloper()
 		s.registerWebhooks()
 		s.registerPolicies()
+		s.registerInstanceConfig()
+		s.registerUploads()
+		s.registerEmailFlows()
 	})
 
 	s.handler = r
 	return s, nil
+}
+
+type corsState struct {
+	revision int64
+	handler  *cors.Cors
+}
+
+// cors applies the effective CORS settings, which administrators can change at runtime;
+// the handler is rebuilt whenever the settings revision changes.
+func (s *Server) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := s.Service.Providers()
+		st := s.corsState.Load()
+		if st == nil || st.revision != p.Revision {
+			st = &corsState{revision: p.Revision, handler: cors.New(cors.Options{
+				AllowedOrigins: p.CORS.AllowedOrigins,
+				AllowedMethods: []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
+				AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-Id", APIVersionHeader, "Gotalk-Setup-Token"},
+				ExposedHeaders: []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Tier",
+					"Retry-After", "X-Request-Id", "Link", APIVersionHeader},
+				AllowCredentials: p.CORS.AllowCredentials,
+				MaxAge:           300,
+			})}
+			s.corsState.Store(st)
+		}
+		st.handler.Handler(next).ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
@@ -161,6 +193,7 @@ func (s *Server) Close() {
 	s.closeOnce.Do(func() {
 		s.stopBackground()
 		s.background.Wait()
+		s.Service.WaitHealthChecks()
 	})
 	s.Service.SetPublisher(nil)
 	s.hub.Close()

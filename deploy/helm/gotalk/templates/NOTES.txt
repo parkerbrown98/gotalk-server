@@ -1,0 +1,30 @@
+Gotalk has been installed.
+
+Service:
+  {{ include "gotalk.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+{{- if .Values.ingress.enabled }}
+Ingress hosts:
+{{- range .Values.ingress.hosts }}
+  - {{ .host }}
+{{- end }}
+{{- else }}
+To test locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "gotalk.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080
+{{- end }}
+
+First-run setup:
+  - Gotalk prints the browser setup link to the pod logs:
+      kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "gotalk.fullname" . }}
+  - Or preconfigure setup.admin.username, setup.admin.email, and setup.admin.password
+    (or put GOTALK_SETUP_ADMIN_PASSWORD in an existingSecret) for headless setup.
+
+WebSockets:
+  Ensure your ingress/proxy supports upgrades for /api/v1/gateway and has idle
+  timeouts above the 30s heartbeat. For nginx, set proxy-read-timeout and
+  proxy-send-timeout annotations (for example 3600 seconds).
+
+Backups:
+  Enable backup.enabled to run /gotalk backup --upload --keep N. Use S3 storage
+  or the same ReadWriteMany PVC as the app so the backup job can access media.

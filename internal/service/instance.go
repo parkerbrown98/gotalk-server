@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/parkerbrown98/gotalk-server/internal/apperr"
+	"github.com/parkerbrown98/gotalk-server/internal/auth"
 	"github.com/parkerbrown98/gotalk-server/internal/store"
 )
 
@@ -67,6 +68,12 @@ func (s *Service) checkSetupToken(settings store.InstanceSetting, provided strin
 	return false
 }
 
+// ValidSetupToken reports whether token unlocks the wizard of an instance awaiting setup.
+func (s *Service) ValidSetupToken(ctx context.Context, token string) bool {
+	settings, err := s.q.GetInstanceSettings(ctx)
+	return err == nil && settings.SetupCompletedAt == nil && s.checkSetupToken(settings, token)
+}
+
 type SetupInput struct {
 	Token               string
 	InstanceName        string
@@ -75,6 +82,26 @@ type SetupInput struct {
 	AdminUsername       string
 	AdminEmail          string
 	AdminPassword       string
+	// Settings optionally configures storage, email, voice and CORS from the wizard. Each
+	// section is checked live before setup completes unless SkipChecks is set.
+	Settings   ProviderSettings
+	SkipChecks bool
+}
+
+// TestSetupSettings live-checks wizard settings before setup completes; it needs the
+// setup token. testEmailTo, when set, also sends a test email.
+func (s *Service) TestSetupSettings(ctx context.Context, token string, in ProviderSettings, testEmailTo string) ([]Check, error) {
+	settings, err := s.q.GetInstanceSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if settings.SetupCompletedAt != nil {
+		return nil, ErrSetupAlreadyCompleted
+	}
+	if !s.checkSetupToken(settings, token) {
+		return nil, apperr.Forbidden("invalid setup token; copy the setup link printed in the server logs")
+	}
+	return s.testSettings(ctx, in, testEmailTo)
 }
 
 // CompleteSetup configures the instance and creates the first administrator. It is safe
@@ -120,6 +147,10 @@ func (s *Service) completeSetup(ctx context.Context, in SetupInput, client Clien
 	); err != nil {
 		return nil, settings, firstAppErr(err)
 	}
+	cands, _, err := s.prepareAndCheck(ctx, in.Settings, in.SkipChecks)
+	if err != nil {
+		return nil, settings, err
+	}
 
 	var result *AuthResult
 	err = s.tx(ctx, func(q *store.Queries) error {
@@ -140,6 +171,11 @@ func (s *Service) completeSetup(ctx context.Context, in SetupInput, client Clien
 		if err != nil {
 			return err
 		}
+		if len(cands) > 0 {
+			if err := s.storeCandidates(ctx, q, cands, &user.ID); err != nil {
+				return err
+			}
+		}
 		result, err = s.createSession(ctx, q, user, client)
 		return err
 	})
@@ -147,6 +183,11 @@ func (s *Service) completeSetup(ctx context.Context, in SetupInput, client Clien
 		return nil, settings, err
 	}
 	s.setupDone.Store(true)
+	if len(cands) > 0 {
+		if err := s.ReloadProviders(ctx); err != nil {
+			s.log.Error("applying settings from setup", "error", err)
+		}
+	}
 	s.log.Info("instance setup completed", "instance", settings.Name, "admin", in.AdminUsername)
 	return result, settings, nil
 }
@@ -242,4 +283,88 @@ func (s *Service) UpdateInstance(ctx context.Context, p *Principal, in InstanceU
 		IconUrl:          in.IconURL,
 		RegistrationMode: in.RegistrationMode,
 	})
+}
+
+// ReapplyInput carries what `gotalk setup --reset` re-applies to a configured instance.
+// Nil instance fields are left unchanged; admin fields are optional.
+type ReapplyInput struct {
+	InstanceName        *string
+	InstanceDescription *string
+	RegistrationMode    *string
+	AdminUsername       string
+	AdminEmail          string
+	AdminPassword       string
+}
+
+// ReapplyResult reports what ReapplySetup changed.
+type ReapplyResult struct {
+	Settings     store.InstanceSetting
+	AdminCreated bool
+	AdminReset   bool
+}
+
+// ReapplySetup re-applies setup values to an already configured instance, for recovery
+// and infrastructure-as-code: instance fields are updated, and the administrator account
+// is created, or (when it exists) promoted to administrator with its password reset and
+// every session and personal access token revoked.
+func (s *Service) ReapplySetup(ctx context.Context, in ReapplyInput) (ReapplyResult, error) {
+	var res ReapplyResult
+	if in.InstanceName != nil {
+		trimmed := strings.TrimSpace(*in.InstanceName)
+		if trimmed == "" || len(trimmed) > 100 {
+			return res, apperr.Invalid("instance name must be 1-100 characters")
+		}
+		in.InstanceName = &trimmed
+	}
+	if in.RegistrationMode != nil {
+		if err := validateRegistrationMode(*in.RegistrationMode); err != nil {
+			return res, err
+		}
+	}
+	if in.AdminUsername != "" {
+		if err := validatePassword(in.AdminPassword); err != nil {
+			return res, err
+		}
+	}
+	err := s.tx(ctx, func(q *store.Queries) error {
+		var err error
+		res.Settings, err = q.UpdateInstanceSettings(ctx, store.UpdateInstanceSettingsParams{
+			Name: in.InstanceName, Description: in.InstanceDescription, RegistrationMode: in.RegistrationMode,
+		})
+		if err != nil || in.AdminUsername == "" {
+			return err
+		}
+		user, err := q.GetUserByUsername(ctx, in.AdminUsername)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if err := errors.Join(validateUsername(in.AdminUsername), validateEmail(in.AdminEmail)); err != nil {
+				return firstAppErr(err)
+			}
+			_, err = s.createUser(ctx, q, in.AdminUsername, in.AdminEmail, in.AdminPassword, true)
+			res.AdminCreated = err == nil
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if user.IsBot {
+			return apperr.Invalid("%q is a bot account", in.AdminUsername)
+		}
+		hash, err := auth.HashPassword(in.AdminPassword)
+		if err != nil {
+			return err
+		}
+		if err := q.UpdateUserPassword(ctx, store.UpdateUserPasswordParams{ID: user.ID, PasswordHash: hash}); err != nil {
+			return err
+		}
+		if err := q.SetInstanceAdmin(ctx, user.ID); err != nil {
+			return err
+		}
+		s.emitSessionsEnded(ctx, q, user.ID, nil, nil)
+		if _, err := q.RevokePersonalTokens(ctx, user.ID); err != nil {
+			return err
+		}
+		res.AdminReset = true
+		return q.RevokeAllUserSessions(ctx, user.ID)
+	})
+	return res, err
 }

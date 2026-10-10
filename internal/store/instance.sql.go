@@ -18,7 +18,7 @@ SET name               = $1,
     setup_token        = NULL,
     updated_at         = now()
 WHERE id = 1 AND setup_completed_at IS NULL
-RETURNING id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at
+RETURNING id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at, config_revision
 `
 
 type CompleteSetupParams struct {
@@ -41,6 +41,7 @@ func (q *Queries) CompleteSetup(ctx context.Context, arg CompleteSetupParams) (I
 		&i.JwtSecret,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigRevision,
 	)
 	return i, err
 }
@@ -84,7 +85,7 @@ func (q *Queries) EnsureInstanceSettings(ctx context.Context, arg EnsureInstance
 }
 
 const getInstanceSettings = `-- name: GetInstanceSettings :one
-SELECT id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at FROM instance_settings WHERE id = 1
+SELECT id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at, config_revision FROM instance_settings WHERE id = 1
 `
 
 func (q *Queries) GetInstanceSettings(ctx context.Context) (InstanceSetting, error) {
@@ -101,6 +102,7 @@ func (q *Queries) GetInstanceSettings(ctx context.Context) (InstanceSetting, err
 		&i.JwtSecret,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigRevision,
 	)
 	return i, err
 }
@@ -114,7 +116,7 @@ SET name              = COALESCE($1::text, name),
     registration_mode = COALESCE($4::text, registration_mode),
     updated_at        = now()
 WHERE id = 1
-RETURNING id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at
+RETURNING id, name, description, icon_url, registration_mode, setup_token, setup_completed_at, jwt_secret, created_at, updated_at, config_revision
 `
 
 type UpdateInstanceSettingsParams struct {
@@ -144,6 +146,7 @@ func (q *Queries) UpdateInstanceSettings(ctx context.Context, arg UpdateInstance
 		&i.JwtSecret,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigRevision,
 	)
 	return i, err
 }

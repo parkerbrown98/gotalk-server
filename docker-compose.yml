@@ -18,6 +18,32 @@ services:
       GOTALK_REDIS_URL: redis://redis:6379/0
       GOTALK_SERVER_PUBLIC_URL: ${GOTALK_SERVER_PUBLIC_URL:-}
       GOTALK_LOG_FORMAT: ${GOTALK_LOG_FORMAT:-text}
+      # Optional object/file storage. Leave unset for the local /data volume.
+      GOTALK_STORAGE_DRIVER: ${GOTALK_STORAGE_DRIVER:-}
+      GOTALK_STORAGE_LOCAL_PATH: ${GOTALK_STORAGE_LOCAL_PATH:-/data}
+      GOTALK_STORAGE_S3_ENDPOINT: ${GOTALK_STORAGE_S3_ENDPOINT:-}
+      GOTALK_STORAGE_S3_REGION: ${GOTALK_STORAGE_S3_REGION:-}
+      GOTALK_STORAGE_S3_BUCKET: ${GOTALK_STORAGE_S3_BUCKET:-}
+      GOTALK_STORAGE_S3_PREFIX: ${GOTALK_STORAGE_S3_PREFIX:-}
+      GOTALK_STORAGE_S3_ACCESS_KEY_ID: ${GOTALK_STORAGE_S3_ACCESS_KEY_ID:-}
+      GOTALK_STORAGE_S3_SECRET_ACCESS_KEY: ${GOTALK_STORAGE_S3_SECRET_ACCESS_KEY:-}
+      GOTALK_STORAGE_S3_FORCE_PATH_STYLE: ${GOTALK_STORAGE_S3_FORCE_PATH_STYLE:-}
+      GOTALK_STORAGE_PUBLIC_URL: ${GOTALK_STORAGE_PUBLIC_URL:-}
+      GOTALK_UPLOADS_MAX_SIZE: ${GOTALK_UPLOADS_MAX_SIZE:-}
+      # Optional outbound mail. For local SMTP testing, see the "mail" profile below.
+      GOTALK_MAIL_DRIVER: ${GOTALK_MAIL_DRIVER:-}
+      GOTALK_MAIL_FROM: ${GOTALK_MAIL_FROM:-}
+      GOTALK_MAIL_SMTP_HOST: ${GOTALK_MAIL_SMTP_HOST:-}
+      GOTALK_MAIL_SMTP_PORT: ${GOTALK_MAIL_SMTP_PORT:-}
+      GOTALK_MAIL_SMTP_USERNAME: ${GOTALK_MAIL_SMTP_USERNAME:-}
+      GOTALK_MAIL_SMTP_PASSWORD: ${GOTALK_MAIL_SMTP_PASSWORD:-}
+      GOTALK_MAIL_SMTP_TLS: ${GOTALK_MAIL_SMTP_TLS:-}
+      GOTALK_MAIL_API_KEY: ${GOTALK_MAIL_API_KEY:-}
+      GOTALK_MAIL_API_URL: ${GOTALK_MAIL_API_URL:-}
+      GOTALK_MAIL_DOMAIN: ${GOTALK_MAIL_DOMAIN:-}
+      GOTALK_MAIL_REGION: ${GOTALK_MAIL_REGION:-}
+      GOTALK_MAIL_ACCESS_KEY_ID: ${GOTALK_MAIL_ACCESS_KEY_ID:-}
+      GOTALK_MAIL_SECRET_ACCESS_KEY: ${GOTALK_MAIL_SECRET_ACCESS_KEY:-}
       # Optional headless setup: fill these in to skip the browser wizard.
       GOTALK_SETUP_ADMIN_USERNAME: ${GOTALK_SETUP_ADMIN_USERNAME:-}
       GOTALK_SETUP_ADMIN_EMAIL: ${GOTALK_SETUP_ADMIN_EMAIL:-}
@@ -29,6 +55,8 @@ services:
       GOTALK_VOICE_LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-gotalk-local-voice-secret-change-me}
       # Let place webhooks reach addresses on your own network (e.g. a home automation hub).
       GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS: ${GOTALK_WEBHOOKS_ALLOW_PRIVATE_NETWORKS:-false}
+    volumes:
+      - gotalk-data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +88,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local SMTP testing. Mailpit UI: http://localhost:8025, SMTP: mailpit:1025.
+  # Example:
+  #   GOTALK_MAIL_DRIVER=smtp GOTALK_MAIL_SMTP_HOST=mailpit GOTALK_MAIL_SMTP_PORT=1025 GOTALK_MAIL_SMTP_TLS=none GOTALK_MAIL_FROM="Gotalk <noreply@localhost>" docker compose --profile mail up -d
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["mail"]
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   # Voice and video media server. Opt in with:
   #   GOTALK_VOICE_LIVEKIT_URL=ws://localhost:7880 docker compose --profile voice up -d
   # Clients connect to it directly, so beyond localhost set GOTALK_VOICE_LIVEKIT_URL to an
@@ -88,4 +127,5 @@ services:
             - http://gotalk:8080/api/v1/voice/webhook
 
 volumes:
+  gotalk-data:
   postgres-data:

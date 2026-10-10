@@ -39,13 +39,13 @@ const (
 )
 
 // VoiceEnabled reports whether a LiveKit server is configured.
-func (s *Service) VoiceEnabled() bool { return s.voice != nil }
+func (s *Service) VoiceEnabled() bool { return s.voiceClient() != nil }
 
 // VoiceBackend is the LiveKit client, or nil when voice is disabled.
-func (s *Service) VoiceBackend() *livekit.Client { return s.voice }
+func (s *Service) VoiceBackend() *livekit.Client { return s.voiceClient() }
 
 func (s *Service) requireVoice() error {
-	if s.voice == nil {
+	if s.voiceClient() == nil {
 		return apperr.Unavailable("voice is not enabled on this instance")
 	}
 	return nil
@@ -149,13 +149,14 @@ func (s *Service) emitVoiceState(ctx context.Context, q *store.Queries, st store
 
 // kickFromRoom disconnects a participant from LiveKit after the transaction commits.
 func (s *Service) kickFromRoom(ctx context.Context, q *store.Queries, channelID, userID uuid.UUID) {
-	if s.voice == nil {
+	lk := s.voiceClient()
+	if lk == nil {
 		return
 	}
 	s.afterCommit(ctx, q, func(ctx context.Context) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), voiceCallTimeout)
 		defer cancel()
-		if err := s.voice.RemoveParticipant(ctx, roomName(channelID), userID.String()); err != nil {
+		if err := lk.RemoveParticipant(ctx, roomName(channelID), userID.String()); err != nil {
 			s.log.Warn("removing voice participant", "channel", channelID, "user", userID, "error", err)
 		}
 	})
@@ -203,12 +204,12 @@ func (s *Service) applyVoiceGrant(ctx context.Context, q *store.Queries, st stor
 	if err := s.emitVoiceState(ctx, q, updated, false); err != nil {
 		return st, err
 	}
-	if s.voice != nil {
+	if lk := s.voiceClient(); lk != nil {
 		perm := livekitPermission(updated)
 		s.afterCommit(ctx, q, func(ctx context.Context) {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), voiceCallTimeout)
 			defer cancel()
-			if err := s.voice.UpdatePermission(ctx, roomName(updated.ChannelID), updated.UserID.String(), perm); err != nil {
+			if err := lk.UpdatePermission(ctx, roomName(updated.ChannelID), updated.UserID.String(), perm); err != nil {
 				s.log.Warn("updating voice permissions", "channel", updated.ChannelID, "user", updated.UserID, "error", err)
 			}
 		})
@@ -228,15 +229,19 @@ func (s *Service) connection(view VoiceStateView) (VoiceConnection, error) {
 			name = view.User.Username
 		}
 	}
+	lk := s.voiceClient()
+	if lk == nil {
+		return VoiceConnection{}, apperr.Unavailable("voice is not enabled on this instance")
+	}
 	room := roomName(view.State.ChannelID)
-	token, exp, err := s.voice.ParticipantToken(livekit.TokenOptions{
+	token, exp, err := lk.ParticipantToken(livekit.TokenOptions{
 		Identity: view.State.UserID.String(), Name: name, Room: room,
 		Permission: livekitPermission(view.State), TTL: s.cfg.Voice.TokenTTL,
 	})
 	if err != nil {
 		return VoiceConnection{}, err
 	}
-	return VoiceConnection{URL: s.voice.URL(), Token: token, Room: room, ExpiresAt: exp, State: view}, nil
+	return VoiceConnection{URL: lk.URL(), Token: token, Room: room, ExpiresAt: exp, State: view}, nil
 }
 
 func getVoiceState(ctx context.Context, q *store.Queries, userID uuid.UUID) (store.VoiceState, bool, error) {
@@ -837,11 +842,11 @@ func (s *Service) voiceChannelDeleted(ctx context.Context, q *store.Queries, ch 
 	for _, v := range views {
 		s.emit(ctx, q, Event{Type: EventVoiceStateUpdate, Data: v, Users: []uuid.UUID{v.State.UserID}})
 	}
-	if s.voice != nil {
+	if lk := s.voiceClient(); lk != nil {
 		s.afterCommit(ctx, q, func(ctx context.Context) {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), voiceCallTimeout)
 			defer cancel()
-			if err := s.voice.DeleteRoom(ctx, roomName(ch.ID)); err != nil {
+			if err := lk.DeleteRoom(ctx, roomName(ch.ID)); err != nil {
 				s.log.Warn("closing voice room", "channel", ch.ID, "error", err)
 			}
 		})
@@ -1012,7 +1017,8 @@ func (s *Service) sweepRoom(ctx context.Context, channelID uuid.UUID, states []s
 			return err
 		})
 	}
-	if s.voice == nil {
+	lk := s.voiceClient()
+	if lk == nil {
 		for _, st := range states {
 			if err := remove(st, voiceEndDisabled); err != nil {
 				return err
@@ -1021,7 +1027,7 @@ func (s *Service) sweepRoom(ctx context.Context, channelID uuid.UUID, states []s
 		return nil
 	}
 	callCtx, cancel := context.WithTimeout(ctx, voiceCallTimeout)
-	participants, err := s.voice.ListParticipants(callCtx, roomName(channelID))
+	participants, err := lk.ListParticipants(callCtx, roomName(channelID))
 	cancel()
 	if err != nil {
 		return err
