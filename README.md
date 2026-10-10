@@ -319,7 +319,9 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `mail.region` / `access_key_id` / `secret_access_key` | | Amazon SES |
 
 Rates use `<limit>-<period>` where period is `S`, `M`, `H`, or `D`. CORS origins may be `*`,
-exact origins (`https://app.example.com`) or contain one wildcard (`https://*.example.com`).
+exact origins (`https://app.example.com`), origins with one wildcard (`https://*.example.com`) or
+custom schemes. The desktop app's webview sends `tauri://localhost` (macOS and Linux) or
+`http://tauri.localhost` (Windows), so allow those when restricting origins.
 
 ## API overview
 

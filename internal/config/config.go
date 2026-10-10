@@ -451,7 +451,8 @@ func ValidateVoice(v Voice) error {
 }
 
 // ValidateCORS checks allowed origins: "*", exact origins such as https://app.example.com,
-// or origins with a single wildcard such as https://*.example.com.
+// or origins with a single wildcard such as https://*.example.com. Custom schemes are
+// allowed, because the desktop app's webview sends tauri://localhost (macOS and Linux).
 func ValidateCORS(origins []string, allowCredentials bool) error {
 	var errs []error
 	for _, o := range origins {
@@ -466,9 +467,9 @@ func ValidateCORS(origins []string, allowCredentials bool) error {
 			continue
 		}
 		u, err := url.Parse(strings.Replace(o, "*", "wildcard", 1))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") ||
+		if err != nil || u.Scheme == "" || u.Host == "" || (u.Path != "" && u.Path != "/") ||
 			u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(o, "/") {
-			errs = append(errs, fmt.Errorf("server.cors_allowed_origins entry %q must be an origin like https://app.example.com (no path or trailing slash)", o))
+			errs = append(errs, fmt.Errorf("server.cors_allowed_origins entry %q must be an origin like https://app.example.com or tauri://localhost (scheme and host, no path or trailing slash)", o))
 		}
 	}
 	return errors.Join(errs...)

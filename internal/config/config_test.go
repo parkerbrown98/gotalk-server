@@ -163,6 +163,12 @@ func TestStorageMailAndUploadsConfig(t *testing.T) {
 	}
 	_, err = load("", environ("GOTALK_SERVER_CORS_ALLOWED_ORIGINS=https://*.example.com,http://localhost:3000"))
 	require.NoError(t, err)
+
+	// The desktop app's webview origins can be allow-listed.
+	_, err = load("", environ("GOTALK_SERVER_CORS_ALLOWED_ORIGINS=tauri://localhost,http://tauri.localhost,https://tauri.localhost"))
+	require.NoError(t, err)
+	_, err = load("", environ("GOTALK_SERVER_CORS_ALLOWED_ORIGINS=localhost:3000,tauri://"))
+	require.Error(t, err)
 }
 
 func TestVoiceConfig(t *testing.T) {
