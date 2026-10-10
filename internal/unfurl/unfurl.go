@@ -179,7 +179,7 @@ func (c *Client) Fetch(ctx context.Context, rawURL string) (Result, error) {
 		return Result{}, fmt.Errorf("unsupported content type %q", ct)
 	}
 
-	var body io.Reader = io.LimitReader(resp.Body, maxHTMLBytes)
+	body := io.LimitReader(resp.Body, maxHTMLBytes)
 	if r, err := charset.NewReader(body, mime.FormatMediaType(ct, params)); err == nil {
 		body = r
 	}
