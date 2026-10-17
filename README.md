@@ -126,3 +126,9 @@ golangci-lint run ./...            # lint, same config as CI
 ```
 
 See [Development](docs/development.md) for schema changes, `sqlc` and the source layout.
+
+## License
+
+[GNU AGPL-3.0](LICENSE). If you run a modified version as a network service, you must offer its source to
+the users of that service. The official client, [gotalk-client](https://github.com/parkerbrown98/gotalk-client),
+is licensed separately under MIT.
