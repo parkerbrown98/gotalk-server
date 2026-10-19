@@ -34,11 +34,13 @@ voice, and any client can connect to any instance.
 
 - Single static Go binary (~20 MB distroless image), PostgreSQL required, Redis and LiveKit optional
 - Browser setup wizard **or** fully headless setup from environment variables; the same page
-  lets administrators change storage, email, voice and CORS later
+  lets administrators change storage, email, voice, CORS and push notifications later
 - Runs anywhere from a Raspberry Pi to Kubernetes: Docker Compose, a Helm chart, plain
   manifests, and 12-factor configuration
 - Pluggable file storage (local disk or any S3-compatible store) and email (SMTP, SendGrid,
   Mailgun, Postmark, Resend, Amazon SES)
+- Push notifications to phones and browsers through a [Gotalk push gateway](https://github.com/parkerbrown98/gotalk-gateway),
+  encrypted to each device so the gateway never sees the text
 - Any client can point at any instance: discovery via `/.well-known/gotalk-instance`
   and `GET /api/v1/instance`
 - OpenAPI 3.1 spec and interactive docs served at `/api/v1/docs`; real-time events over a
@@ -52,8 +54,8 @@ docker compose logs gotalk     # copy the setup link it prints
 ```
 
 Open the link (`http://localhost:8080/setup?token=…`) and the wizard walks you through
-pre-flight checks, naming your instance, the administrator account, file storage, email and
-optional voice. For anything beyond trying it out locally, copy [.env.example](.env.example) to
+pre-flight checks, naming your instance, the administrator account, file storage, email,
+optional voice and optional push notifications. For anything beyond trying it out locally, copy [.env.example](.env.example) to
 `.env` and set at least `POSTGRES_PASSWORD` and `GOTALK_SERVER_PUBLIC_URL`.
 
 More in [Getting started](docs/getting-started.md): headless setup, trying email with Mailpit,
@@ -84,6 +86,7 @@ changing settings later and enabling voice.
 | [Voice](docs/api-voice.md) | Voice channels, moderation, call quality |
 | [Moderation and policies](docs/api-moderation.md) | Reports, bans, audit log, policies and consent, transparency |
 | [Developers](docs/api-developers.md) | API tokens, bots and slash commands, webhooks |
+| [Push notifications](docs/push.md) | The push gateway, device subscriptions, preferences and do-not-disturb, payloads |
 | [Real-time gateway](docs/gateway.md) | WebSocket protocol, events, close codes |
 | [Endpoint reference](docs/api-reference.md) | Every endpoint grouped by area |
 

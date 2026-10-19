@@ -32,7 +32,7 @@ boot.
 | `gotalk serve` | Run the server (default when no command is given). Logs one pre-flight line per dependency at boot |
 | `gotalk migrate` / `gotalk migrate status` | Apply migrations / show schema version |
 | `gotalk setup [--reset] [--reset-settings] [--skip-checks]` | Complete first-run setup from config/env, then exit (see [headless setup](getting-started.md#skip-the-browser-headless-setup)) |
-| `gotalk check` | Run the pre-flight checks (database, Redis, public URL, storage, email, voice) with a fix-it hint per problem; exits 1 if any fails |
+| `gotalk check` | Run the pre-flight checks (database, Redis, public URL, storage, email, voice, push gateway) with a fix-it hint per problem; exits 1 if any fails |
 | `gotalk backup [--output FILE\|-] [--no-media] [--upload [--keep N]]` | Write a backup archive; see [Backup and restore](backup-and-restore.md) |
 | `gotalk backup list` | List backups stored in the storage backend |
 | `gotalk restore --input FILE\|- \| --from-storage NAME [--force] [--no-media]` | Restore a backup |

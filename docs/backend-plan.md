@@ -211,7 +211,11 @@ sessions over the gateway. Signed-out callers get no `viewer` object; clients ke
 
 - In-app notification center (mentions, replies, reactions, DMs, moderation actions)
 - Email digest notifications (configurable frequency)
-- Push notifications (web push / mobile) via subscription endpoints
+- Push notifications (web push / mobile) via subscription endpoints. **✅ Implemented** through the
+  [Gotalk push gateway](https://github.com/parkerbrown98/gotalk-gateway) (its plan's Phase 6): session-bound
+  `PushSubscription`s with device keys, a signed gateway client, RFC 8291 payload encryption, a push outbox
+  fed by new notifications, per-category preferences, quiet hours and do-not-disturb, and the wizard and
+  settings section. See [Push notifications](push.md).
 - Per-category notification preferences (mute topic, mute Place, mute channel)
 - Webhook support for external integrations (Place-level outgoing webhooks)
 
@@ -405,9 +409,10 @@ Deferred from sections 3, 4, 7 and 8:
 
 - **Attachments** (the `ATTACH_FILES` bit is reserved): needs the storage backends and media pipeline
   (Phase 7 / section 12).
-- **Scheduled publishing, email digests, and push notifications:** need the background job runner and
-  mail/push providers (Phase 7). Notifications are fanned out synchronously; since Phase 3 they are
-  also pushed in real time over the gateway.
+- **Scheduled publishing and email digests:** need the background job runner and mail providers
+  (Phase 7). Notifications are fanned out synchronously; since Phase 3 they are also pushed in real
+  time over the gateway. Push notifications to devices have since been built
+  ([Push notifications](push.md)).
 - **SEO rendering** (OpenGraph/JSON-LD pages, sitemaps): belongs to the public index at
   [gotalk.sh](https://github.com/parkerbrown98/gotalk-platform), not the web client (which is
   `noindex`). Instances opt in and serve the [index endpoints and change feed](api-index.md).
@@ -758,8 +763,9 @@ Deferred from section 11 and the deferred lists of earlier phases:
 - **Attachments on posts and messages, link unfurling, media thumbnails and feed previews:**
   the storage backends, upload validation and `/media` serving they need now exist; the
   per-board/channel `ATTACH_FILES` flows, quotas and a resizing pipeline are follow-up work.
-- **Data export, retention policies, digests, push notifications, OAuth/OIDC login and MFA:**
-  mail delivery and storage are in place for them; each needs its own product work.
+- **Data export, retention policies, digests, OAuth/OIDC login and MFA:**
+  mail delivery and storage are in place for them; each needs its own product work. (Push
+  notifications have since been built; see [Push notifications](push.md).)
 - **Encrypting secrets saved through the settings page:** they are stored in the database as
   entered (like the generated JWT secret), so database backups must be protected. Operators who
   prefer can keep every secret in environment variables or mounted files instead.

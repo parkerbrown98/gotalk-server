@@ -15,7 +15,7 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 
 | Area | Endpoints |
 |---|---|
-| Instance | `GET/PATCH /instance`, `PUT/DELETE /instance/icon`, `GET/PATCH /instance/config`, `DELETE /instance/config/{section}`, `POST /instance/config/test`, `GET /instance/checks`, `GET /instance/directory`, `POST /instance/directory/keys/rotate`, `DELETE /instance/directory/keys/previous`, `GET /instance/audit-log`, `GET /permissions`, `GET /setup/status`, `POST /setup`, `POST /setup/test` |
+| Instance | `GET/PATCH /instance`, `PUT/DELETE /instance/icon`, `GET/PATCH /instance/config`, `DELETE /instance/config/{section}`, `POST /instance/config/test`, `GET /instance/checks`, `GET /instance/directory`, `POST /instance/directory/keys/rotate`, `DELETE /instance/directory/keys/previous`, `GET /instance/push`, `POST /instance/push/verify`, `POST /instance/push/keys/rotate`, `GET /instance/audit-log`, `GET /permissions`, `GET /setup/status`, `POST /setup`, `POST /setup/test` |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset`, `/auth/password-reset/confirm`, `/auth/verify-email` |
 | Users | `GET/PATCH/DELETE /users/@me`, `PUT/DELETE /users/@me/avatar`, `POST /users/@me/password`, `POST /users/@me/email/verification`, `GET /users/@me/sessions`, `DELETE /users/@me/sessions/{id}`, `GET /users/@me/places`, `GET /users/{username}` |
 | Places | `GET/POST /places`, `GET/PATCH/DELETE /places/{place}`, `PUT/DELETE /places/{place}/icon`, `/banner`, `POST /places/{place}/join`, `/leave`, `/transfer`, `GET /places/{place}/permissions/@me` |
@@ -30,6 +30,7 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 | Search | `GET /search`, `GET /places/{place}/search` |
 | Notifications | `GET /users/@me/notifications`, `GET …/notifications/unread-count`, `POST …/notifications/read-all`, `POST …/notifications/{id}/read`, `DELETE …/notifications/{id}`, `PUT /places/{place}/subscription` |
 | Drafts | `GET /users/@me/drafts`, `GET/PUT/DELETE /users/@me/drafts/{key}` |
+| Push notifications | `GET/POST /users/@me/push-subscriptions`, `DELETE /users/@me/push-subscriptions/{subscriptionID}`, `GET/PUT /users/@me/push-preferences` |
 | Moderation | `GET/POST /places/{place}/reports`, `PATCH /places/{place}/reports/{reportID}`, `GET /places/{place}/audit-log`, `PUT/DELETE /places/{place}/members/{userID}/timeout`, `POST /places/{place}/members/{userID}/warnings` |
 | Channels | `GET/POST /places/{place}/channels`, `GET/PATCH/DELETE /channels/{channelID}`, `GET /channels/{channelID}/overwrites`, `PUT/DELETE /channels/{channelID}/overwrites/{roleID}`, `GET/POST /channels/{channelID}/threads`, `PUT /channels/{channelID}/subscription`, `PUT /channels/{channelID}/read`, `POST /channels/{channelID}/typing` |
 | Messages | `GET/POST /channels/{channelID}/messages`, `GET/PATCH/DELETE /messages/{messageID}`, `GET /messages/{messageID}/revisions`, `GET/PUT/DELETE /messages/{messageID}/reactions/{emoji}`, `GET /channels/{channelID}/pins`, `PUT/DELETE /channels/{channelID}/pins/{messageID}` |
@@ -53,3 +54,4 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 | Moderation, Policies | [Moderation and policies](api-moderation.md) |
 | Developer, Webhooks | [Developers](api-developers.md) |
 | Public index | [Public index](api-index.md) |
+| Push notifications | [Push notifications](push.md) |

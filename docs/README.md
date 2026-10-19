@@ -37,6 +37,7 @@ at `/api/v1/openapi.json`.
 | [Voice](api-voice.md) | Voice channels, moderation, call quality |
 | [Moderation and policies](api-moderation.md) | Reports, bans, audit log, policies and consent, transparency |
 | [Public index](api-index.md) | Listing in the public Gotalk directory, index endpoints, change feed, pings |
+| [Push notifications](push.md) | The push gateway, device subscriptions, preferences and do-not-disturb, payloads |
 | [Developers](api-developers.md) | API tokens, bots and slash commands, webhooks |
 | [Real-time gateway](gateway.md) | WebSocket protocol, events, close codes |
 | [Endpoint reference](api-reference.md) | Every endpoint grouped by area |

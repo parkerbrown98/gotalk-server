@@ -12,16 +12,17 @@
 ## Instance settings (administrators)
 
 `GET /instance/config` shows storage, email, voice,
-CORS and public directory listing with their `source` (`default`, `config` or `settings`), whether they are editable and
+CORS, public directory listing and push notifications with their `source` (`default`, `config` or `settings`), whether they are editable and
 which secrets are set (secrets are never returned). `PATCH /instance/config` takes any of
-`storage`, `mail`, `voice`, `cors`, `directory`, checks them live, and saves and applies them on every
+`storage`, `mail`, `voice`, `cors`, `directory`, `push`, checks them live, and saves and applies them on every
 replica; a failing check answers `422` unless `?force=true`. Secrets left empty keep their
 current value. `DELETE /instance/config/{section}` forgets saved settings,
 `POST /instance/config/test` checks settings without saving (optionally sending a test email),
 and `GET /instance/checks` runs the pre-flight checks. These need a login session, not an API
 token. The `directory` section, its signing keys and `GET /instance/audit-log` are described in
 [Public index](api-index.md#opting-in). `GET /instance` reports `directory.listed` and
-`directory.places_indexed` to everyone. During first-run setup, `GET /setup/status` with a `Gotalk-Setup-Token` header and
+`directory.places_indexed` to everyone. The `push` section, the gateway registration (`GET /instance/push`) and the
+`push` object in `GET /instance` are described in [Push notifications](push.md). During first-run setup, `GET /setup/status` with a `Gotalk-Setup-Token` header and
 `POST /setup/test` do the same with the setup token, and `POST /setup` accepts a `settings`
 object.
 

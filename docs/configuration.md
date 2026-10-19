@@ -21,6 +21,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 - [Uploads and link previews](#uploads-and-link-previews)
 - [Email](#email)
 - [Public directory](#public-directory)
+- [Push notifications](#push-notifications)
 - [Value formats](#value-formats)
 
 ## Server
@@ -155,6 +156,21 @@ here makes the whole section read-only in the browser settings and the settings 
 
 Listing needs `server.public_url` set to the instance's public `https://` address, so the advertised index URL and
 the ping origin are stable.
+
+## Push notifications
+
+Sends notifications to phones and browsers through a Gotalk push gateway. See [Push notifications](push.md).
+Setting `push.enabled` here makes the whole section read-only in the browser settings and the settings API.
+
+| Key | Default | Description |
+|---|---|---|
+| `push.enabled` | `false` | Register with the gateway and turn notifications into pushes |
+| `push.gateway_url` | `https://push.gotalk.sh` | Push gateway base URL. The default is the official gateway, which the official apps use; custom app builds need their own |
+| `push.contact_email` | *(oldest administrator's email)* | Given to the gateway operator for abuse and key notices |
+| `push.signing_key` | *(generated)* | Ed25519 seed (32 bytes, unpadded base64url) that signs gateway requests. When empty, a key is generated and stored in the database |
+
+Push needs `server.public_url` set to the instance's public `https://` address: the gateway identifies the instance
+by that origin and verifies it by fetching `/.well-known/gotalk-instance`.
 
 ## Value formats
 
