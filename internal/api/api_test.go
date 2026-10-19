@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -118,6 +119,14 @@ type envOpts struct {
 	redisURL  string
 	heartbeat time.Duration
 	mutate    func(*config.Config)
+	// publicURL sets server.public_url to the test server's own address, for flows where
+	// something fetches the instance's well-known document.
+	publicURL bool
+	// publicHost makes the server listen on every interface and advertise
+	// http://<publicHost>:<port> as server.public_url, for callers in containers.
+	publicHost string
+	// listenPort fixes the port publicHost listens on (0 picks one).
+	listenPort int
 }
 
 func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
@@ -143,6 +152,21 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 	cfg.RateLimit.Chat = "1000-M"
 	if o.mutate != nil {
 		o.mutate(cfg)
+	}
+	// The listener exists before the service, so server.public_url can name it.
+	srv := httptest.NewUnstartedServer(nil)
+	if o.publicHost != "" {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", o.listenPort))
+		require.NoError(t, err)
+		_ = srv.Listener.Close()
+		srv.Listener = ln
+	}
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+	switch {
+	case o.publicHost != "":
+		cfg.Server.PublicURL = fmt.Sprintf("http://%s:%d", o.publicHost, port)
+	case o.publicURL:
+		cfg.Server.PublicURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	}
 
 	ctx := context.Background()
@@ -170,7 +194,10 @@ func newEnv(t *testing.T, opts ...func(*envOpts)) *env {
 		HeartbeatInterval: o.heartbeat,
 	})
 	require.NoError(t, err)
-	srv := httptest.NewServer(handler)
+	srv.Config.Handler = handler
+	srv.Start()
+	// Tests talk to the server over loopback, whatever it listens on.
+	srv.URL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	t.Cleanup(srv.Close)
 	t.Cleanup(handler.Close)
 	return &env{t: t, srv: srv, svc: svc, cfg: cfg}

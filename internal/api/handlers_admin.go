@@ -45,6 +45,7 @@ type InstanceConfig struct {
 	Voice     ConfigSection[service.VoiceSettings]     `json:"voice"`
 	CORS      ConfigSection[service.CORSSettings]      `json:"cors"`
 	Directory ConfigSection[service.DirectorySettings] `json:"directory" doc:"Listing in the public Gotalk directory; see GET /instance/directory for keys and status"`
+	Push      ConfigSection[service.PushSettings]      `json:"push" doc:"Push notifications through a push gateway; see GET /instance/push for the registration status"`
 	Drivers   ConfigDrivers                            `json:"drivers" doc:"Available storage and mail drivers"`
 }
 
@@ -71,6 +72,8 @@ func (s *Server) instanceConfig() InstanceConfig {
 			out.CORS = section[service.CORSSettings](v)
 		case service.SectionDirectory:
 			out.Directory = section[service.DirectorySettings](v)
+		case service.SectionPush:
+			out.Push = section[service.PushSettings](v)
 		}
 	}
 	return out
@@ -92,7 +95,7 @@ type ConfigTestRequest struct {
 }
 
 type SectionPath struct {
-	Section string `path:"section" enum:"storage,mail,voice,cors,directory"`
+	Section string `path:"section" enum:"storage,mail,voice,cors,directory,push"`
 }
 
 func requireAdmin(ctx context.Context) error {

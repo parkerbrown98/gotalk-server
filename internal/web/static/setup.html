@@ -120,6 +120,15 @@
       <div class="actions"><button data-back>Back</button><div class="right"><button data-test>Test</button><button class="primary" data-next>Continue</button></div></div>
     </section>
 
+    <section data-step="push">
+      <h2>Push notifications <span class="badge">optional</span></h2>
+      <p class="muted">Notify people on their phones and in their browsers when they are not using Gotalk. Needs the instance to be reachable over HTTPS at its public address.</p>
+      <div id="pushForm"></div>
+      <ul class="checks" data-results></ul>
+      <div class="error" data-err></div>
+      <div class="actions"><button data-back>Back</button><div class="right"><button data-test>Test</button><button class="primary" data-next>Continue</button></div></div>
+    </section>
+
     <section data-step="review">
       <h2>Review</h2>
       <dl id="review"></dl>
@@ -133,7 +142,7 @@
       <dl>
         <dt>Server address</dt><dd><code id="doneURL"></code></dd>
         <dt>API docs</dt><dd><a href="/api/v1/docs">/api/v1/docs</a></dd>
-        <dt>Settings</dt><dd><a href="/setup">/setup</a> &mdash; sign in as an administrator to change storage, email, voice, CORS or directory listing</dd>
+        <dt>Settings</dt><dd><a href="/setup">/setup</a> &mdash; sign in as an administrator to change storage, email, voice, CORS, directory listing or push notifications</dd>
       </dl>
       <div class="error" id="doneErr"></div>
       <div class="actions"><span></span><a href="/"><button class="primary">Go to instance</button></a></div>
@@ -142,7 +151,7 @@
 
   <div id="settings" class="hidden">
     <h1>Instance settings</h1>
-    <p class="muted">Storage, email, voice, CORS and public directory listing for this Gotalk instance. Sections set in the config file or environment are read-only here.</p>
+    <p class="muted">Storage, email, voice, CORS, public directory listing and push notifications for this Gotalk instance. Sections set in the config file or environment are read-only here.</p>
     <div class="card" id="login">
       <h2>Sign in</h2>
       <p class="muted">Use an instance administrator account.</p>
@@ -338,6 +347,54 @@
     };
   };
 
+  // pushForm sends notifications to phones and browsers through a push gateway. status()
+  // (settings page only) loads the gateway registration; verify() registers or re-verifies.
+  const pushForm = (el, sec, status, verify) => {
+    const editable = sec.editable !== false, s = sec.settings || {}, secrets = new Set(sec.secrets_set || []);
+    const enabled = h("input", { type: "checkbox", disabled: !editable }); enabled.checked = !!s.enabled;
+    const gateway = h("input", { type: "url", disabled: !editable, placeholder: "https://push.gotalk.sh (the official gateway)" });
+    gateway.value = s.gateway_url || "";
+    const email = h("input", { type: "email", disabled: !editable, placeholder: "Defaults to the administrator's email" });
+    email.value = s.contact_email || "";
+    const key = h("input", { type: "password", autocomplete: "off", disabled: !editable,
+      placeholder: secrets.has("signing_key") ? "•••••••• (leave empty to keep)" : "Generated automatically when empty" });
+    const state = h("ul", { class: "checks" });
+    const draw = st => {
+      const ok = st.status === "active", dot = ok ? "ok" : (st.status === "pending" || st.status === "unregistered") ? "warning" : "error";
+      const facts = [st.instance_id ? "instance " + st.instance_id : null, st.public_key ? "key " + st.public_key + " (" + st.key_source + ")" : null,
+        st.subscriptions + " device(s)"].filter(Boolean).join(" · ");
+      state.replaceChildren(h("li", {}, h("span", { class: "dot " + (st.enabled ? dot : "skipped") }),
+        h("span", {}, h("strong", { text: st.enabled ? "Gateway status: " + st.status : "Push notifications are off" }), h("br"),
+          st.enabled ? (st.detail || (ok ? "Verified by " + st.gateway_url : "")) : "", st.enabled ? h("div", { class: "hint", text: facts }) : null)));
+    };
+    const verifyBtn = verify ? h("button", { text: "Register / verify now", disabled: !s.enabled }) : null;
+    if (verifyBtn) verifyBtn.addEventListener("click", async () => {
+      verifyBtn.disabled = true;
+      try { draw(await verify()); } catch (e) { state.replaceChildren(h("li", {}, h("span", { class: "dot error" }), h("span", { text: e.message }))); }
+      finally { verifyBtn.disabled = false; }
+    });
+    if (status) status().then(draw).catch(() => {});
+    el.replaceChildren(...present(
+      editable ? null : h("div", { class: "locked", text: "Set by the config file or environment (" + sec.config_key + "); change it there." }),
+      h("p", { class: "muted", text: "The instance registers with the gateway, which verifies it through /.well-known/gotalk-instance. Notification text is encrypted to each device; the gateway never sees it." }),
+      h("label", { class: "inline" }, enabled, "Send push notifications"),
+      h("label", {}, "Gateway URL", gateway), h("label", {}, "Contact email for the gateway operator", email),
+      h("label", {}, "Gateway signing key (Ed25519 seed, base64url)", key), status ? state : null,
+      verifyBtn ? h("div", { class: "actions" }, h("span"), verifyBtn) : null));
+    return {
+      editable,
+      enabled: () => enabled.checked,
+      read: () => {
+        const out = { enabled: enabled.checked };
+        if (gateway.value.trim()) out.gateway_url = gateway.value.trim();
+        if (email.value.trim()) out.contact_email = email.value.trim();
+        if (key.value.trim()) out.signing_key = key.value.trim();
+        return out;
+      },
+      summary: () => !editable ? "set by config" : enabled.checked ? "on — " + (gateway.value.trim() || "https://push.gotalk.sh") : "off",
+    };
+  };
+
   // ---------------------------------------------------------------- first-run wizard
   const runWizard = status => {
     $("wizard").classList.remove("hidden");
@@ -364,7 +421,7 @@
     let checksOK = false, forms = {};
     const drawChecks = s => {
       renderChecks($("checks"), s.checks);
-      checksOK = !s.checks.some(c => c.status === "error" && c.name !== "email" && c.name !== "voice");
+      checksOK = !s.checks.some(c => c.status === "error" && c.name !== "email" && c.name !== "voice" && c.name !== "push");
       err(checksOK ? "" : "Fix the errors above, then re-run the checks.");
     };
     drawChecks(status);
@@ -385,6 +442,7 @@
         forms.storage = providerForm($("storageForm"), "storage", s.config.storage);
         forms.mail = providerForm($("mailForm"), "mail", s.config.mail);
         forms.voice = providerForm($("voiceForm"), "voice", s.config.voice);
+        forms.push = pushForm($("pushForm"), s.config.push);
       },
       instance() {
         if (!$("name").value.trim()) return "Give your instance a name.";
@@ -397,13 +455,14 @@
         }
         if ($("password").value !== $("password2").value) return "Passwords do not match.";
       },
-      storage() {}, mail() {}, voice() {},
+      storage() {}, mail() {}, voice() {}, push() {},
     };
     const settingsFor = name => {
       const f = forms[name];
       if (!f || !f.editable) return undefined;
       if (name === "mail" && !f.driver()) return undefined;
       if (name === "voice" && !f.driver()) return undefined;
+      if (name === "push" && !f.enabled()) return undefined;
       return f.read();
     };
     sections.forEach(s => {
@@ -434,7 +493,7 @@
     const drawReview = () => {
       const rows = [["Name", $("name").value.trim()], ["Registration", $("mode").selectedOptions[0].textContent],
         ["Administrator", $("username").value + " <" + $("email").value + ">"], ["Icon", $("icon").files[0] ? $("icon").files[0].name : "none"],
-        ["Storage", forms.storage.summary()], ["Email", forms.mail.summary()], ["Voice", forms.voice.summary()]];
+        ["Storage", forms.storage.summary()], ["Email", forms.mail.summary()], ["Voice", forms.voice.summary()], ["Push", forms.push.summary()]];
       $("review").replaceChildren(...rows.flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { text: v })]));
       $("force").classList.add("hidden");
     };
@@ -442,7 +501,7 @@
     const finish = async skipChecks => {
       err(""); $("finish").disabled = $("force").disabled = true;
       const settings = {};
-      for (const name of ["storage", "mail", "voice"]) { const v = settingsFor(name); if (v) settings[name] = v; }
+      for (const name of ["storage", "mail", "voice", "push"]) { const v = settingsFor(name); if (v) settings[name] = v; }
       try {
         const res = await api("POST", "/setup", {
           setup_token: token(), skip_checks: skipChecks, settings,
@@ -476,12 +535,13 @@
     let access = "";
     const call = (method, path, body) => api(method, path, body, { Authorization: "Bearer " + access });
 
-    const titles = { storage: "File storage", mail: "Email", voice: "Voice & video", cors: "CORS (browser origins)", directory: "Public directory" };
+    const titles = { storage: "File storage", mail: "Email", voice: "Voice & video", cors: "CORS (browser origins)", directory: "Public directory", push: "Push notifications" };
     const drawSections = cfg => {
-      $("sections").replaceChildren(...["storage", "mail", "voice", "cors", "directory"].map(name => {
+      $("sections").replaceChildren(...["storage", "mail", "voice", "cors", "directory", "push"].map(name => {
         const sec = cfg[name], body = h("div"), results = h("ul", { class: "checks" }), error = h("div", { class: "error" });
         const form = name === "cors" ? corsForm(body, sec)
           : name === "directory" ? directoryForm(body, sec, () => call("GET", "/instance/directory"))
+          : name === "push" ? pushForm(body, sec, () => call("GET", "/instance/push"), () => call("POST", "/instance/push/verify"))
           : providerForm(body, name, sec);
         const when = sec.updated_at ? " · saved " + new Date(sec.updated_at).toLocaleString() : "";
         const run = async (btn, fn) => {

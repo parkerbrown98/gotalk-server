@@ -76,6 +76,8 @@ func New(d Deps) (*Server, error) {
 	}
 	d.Service.SetPublisher(gatewayPublisher{hub: s.hub, log: d.Logger})
 	d.Service.SetEncoder(encodeEventData)
+	d.Service.SetPresence(presence)
+	d.Service.SetVersion(d.Version)
 
 	bg, stop := context.WithCancel(context.Background())
 	s.stopBackground = stop
@@ -85,6 +87,8 @@ func New(d Deps) (*Server, error) {
 	s.background.Go(func() { d.Service.RunMaintenance(bg) })
 	s.background.Go(func() { d.Service.RunConfigWatcher(bg) })
 	s.background.Go(func() { d.Service.RunIndexPings(bg) })
+	s.background.Go(func() { d.Service.RunPushGateway(bg) })
+	s.background.Go(func() { d.Service.RunPushDelivery(bg) })
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -156,6 +160,7 @@ func New(d Deps) (*Server, error) {
 		s.registerAttachments()
 		s.registerEmailFlows()
 		s.registerIndex()
+		s.registerPush()
 	})
 
 	s.handler = r
@@ -201,6 +206,7 @@ func (s *Server) Close() {
 		s.Service.WaitLinkPreviews()
 	})
 	s.Service.SetPublisher(nil)
+	s.Service.SetPresence(nil)
 	s.hub.Close()
 }
 

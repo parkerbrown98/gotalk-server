@@ -55,6 +55,17 @@ type Features struct {
 	EmailVerification bool `json:"email_verification" doc:"Accounts can verify their email address"`
 	Uploads           bool `json:"uploads" doc:"Avatars, place icons and banners, the instance icon, and message and post attachments can be uploaded"`
 	LinkPreviews      bool `json:"link_previews" doc:"The server fetches previews (embeds) for links in messages and posts"`
+	Push              bool `json:"push" doc:"Clients can register devices for push notifications (see push)"`
+}
+
+// PushInfo tells clients how to get push notifications from this instance.
+type PushInfo struct {
+	Enabled    bool         `json:"enabled" doc:"The operator turned push notifications on"`
+	Available  bool         `json:"available" doc:"The gateway verified the instance, so devices can register and receive pushes"`
+	GatewayURL string       `json:"gateway_url" doc:"Register devices with this gateway only; fetch its /.well-known/gotalk-gateway for apps and limits"`
+	Modes      []string     `json:"modes" doc:"Payload modes devices may choose"`
+	Categories []string     `json:"categories" doc:"Categories in PUT /users/@me/push-preferences"`
+	WebApps    []PushWebApp `json:"web_apps" doc:"Apps browsers can subscribe for, with the VAPID key for pushManager.subscribe"`
 }
 
 type FeedInfo struct {
@@ -127,6 +138,7 @@ type Instance struct {
 	Feed             FeedInfo             `json:"feed"`
 	Stats            Stats                `json:"stats"`
 	Directory        DirectorySummary     `json:"directory"`
+	Push             PushInfo             `json:"push"`
 }
 
 func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSetting) (Instance, error) {
@@ -166,8 +178,15 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 	if err != nil {
 		return Instance{}, err
 	}
+	push := PushInfo{Enabled: s.Service.PushEnabled(), GatewayURL: s.Service.PushGatewayURL(),
+		Modes: []string{"encrypted", "id_only"}, Categories: service.PushCategories, WebApps: []PushWebApp{}}
+	if push.Enabled {
+		push.Available = s.Service.PushAvailable(ctx)
+		push.WebApps = toPushWebApps(s.Service.PushWebApps())
+	}
 	return Instance{
 		Directory:   DirectorySummary{Listed: dir.Listed, PlacesIndexed: dir.PlacesIndexed},
+		Push:        push,
 		Name:        settings.Name,
 		Description: settings.Description,
 		IconURL:     settings.IconUrl,
@@ -198,7 +217,7 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 			APITokens: true, Bots: true, Webhooks: true, Policies: true, Transparency: true,
 			Feed: true, TopicVotes: true,
 			Email: mailOn, PasswordReset: mailOn, EmailVerification: mailOn, Uploads: s.Service.StorageEnabled(),
-			LinkPreviews: s.Config.Embeds.Enabled,
+			LinkPreviews: s.Config.Embeds.Enabled, Push: push.Available,
 		},
 		RateLimits: limits,
 		Policies:   policies,
@@ -491,6 +510,20 @@ func (s *Server) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 	}
 	if dir != nil {
 		doc["directory"] = dir
+	}
+	// The push gateway verifies the instance by finding its key here.
+	pushKeys, err := s.Service.PushPublicKeys(r.Context())
+	if err != nil {
+		s.Logger.Error("building the well-known push block", "error", err)
+		writeProblem(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if len(pushKeys) > 0 {
+		keys := make([]map[string]string, len(pushKeys))
+		for i, k := range pushKeys {
+			keys[i] = map[string]string{"alg": k.Alg, "public_key": k.PublicKey}
+		}
+		doc["push"] = map[string]any{"keys": keys, "gateway_url": s.Service.PushGatewayURL()}
 	}
 	writeJSON(w, http.StatusOK, doc)
 }
