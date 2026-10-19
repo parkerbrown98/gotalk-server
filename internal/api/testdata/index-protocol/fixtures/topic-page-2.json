@@ -1,0 +1,51 @@
+{
+  "id": "01a1261e-dfc0-7644-b81a-34024ef98d26",
+  "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+  "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+  "slug": "why-does-borrow-checker-complain",
+  "title": "Why does the borrow checker complain here?",
+  "author": {
+    "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+    "username": "ferris",
+    "display_name": "Ferris"
+  },
+  "created_at": "2026-10-10T14:02:00Z",
+  "updated_at": "2026-10-17T20:11:00Z",
+  "reply_count": 4,
+  "pinned": false,
+  "locked": false,
+  "archived": false,
+  "solved": true,
+  "tags": ["borrowck", "lifetimes"],
+  "posts": [
+    {
+      "id": "01a1316a-1c00-7111-bc62-a9010b69aa99",
+      "number": 5,
+      "parent_id": null,
+      "author": {
+        "id": "019792ae-83c0-793e-a9d2-510cbd597653",
+        "username": "ana.lima",
+        "display_name": "Ana Lima"
+      },
+      "content": "Yes. Either copy it (`let first = v[0];`, since `i32` is `Copy`) or finish using the reference before you push:\n\n```rust\nlet mut v = vec![1, 2, 3];\nlet first = v[0];\nv.push(4);\nprintln!(\"{first}\");\n```\n\nThe [book chapter on references](https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html) walks through the same example.",
+      "created_at": "2026-10-12T18:40:00Z",
+      "edited_at": "2026-10-12T18:52:00Z",
+      "is_solution": true
+    },
+    {
+      "id": "01a14b7d-3820-75dd-a9c9-1a01019da443",
+      "number": 6,
+      "parent_id": "01a1316a-1c00-7111-bc62-a9010b69aa99",
+      "author": {
+        "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+        "username": "ferris",
+        "display_name": "Ferris"
+      },
+      "content": "That makes sense now, thank you!",
+      "created_at": "2026-10-17T20:11:00Z",
+      "edited_at": null,
+      "is_solution": false
+    }
+  ],
+  "next_cursor": null
+}

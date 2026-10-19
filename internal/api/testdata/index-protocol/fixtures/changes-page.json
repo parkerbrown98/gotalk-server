@@ -1,0 +1,49 @@
+{
+  "events": [
+    {
+      "seq": 10231,
+      "type": "place.upsert",
+      "at": "2026-10-17T19:58:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07"
+    },
+    {
+      "seq": 10232,
+      "type": "board.upsert",
+      "at": "2026-10-17T19:58:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4"
+    },
+    {
+      "seq": 10233,
+      "type": "topic.upsert",
+      "at": "2026-10-17T20:11:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a1261e-dfc0-7644-b81a-34024ef98d26"
+    },
+    {
+      "seq": 10234,
+      "type": "topic.delete",
+      "at": "2026-10-17T20:12:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a13f01-1d00-7a74-ba89-f3f050bd9792"
+    },
+    {
+      "seq": 10235,
+      "type": "user.exclude",
+      "at": "2026-10-17T20:15:00Z",
+      "user_id": "0197f13e-e380-7a56-a98a-332db31a83c7"
+    },
+    {
+      "seq": 10236,
+      "type": "topic.delete",
+      "at": "2026-10-17T20:15:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a13a11-af80-70f3-8b74-965237c09c30"
+    }
+  ],
+  "next_cursor": "eyJrIjoiY2hhbmdlcyIsImFmdGVyIjoxMDIzNn0",
+  "has_more": true
+}

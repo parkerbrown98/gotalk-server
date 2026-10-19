@@ -27,6 +27,9 @@ type SelfUser struct {
 	Email           string `json:"email" doc:"Empty for bots"`
 	EmailVerified   bool   `json:"email_verified"`
 	IsInstanceAdmin bool   `json:"is_instance_admin"`
+	// ExcludeFromIndex is the person's choice to keep their posts out of public indexes.
+	ExcludeFromIndex bool   `json:"exclude_from_index" doc:"Your posts are kept out of search engines and the public Gotalk directory"`
+	IndexNotice      string `json:"index_notice" doc:"Plain-language explanation of exclude_from_index, for display"`
 }
 
 func toUser(u store.User) User {
@@ -48,6 +51,9 @@ func toSelfUser(u store.User) SelfUser {
 		Email:           u.Email,
 		EmailVerified:   u.EmailVerifiedAt != nil,
 		IsInstanceAdmin: u.IsInstanceAdmin,
+
+		ExcludeFromIndex: u.ExcludeFromIndex,
+		IndexNotice:      service.AccountIndexNotice(u.ExcludeFromIndex),
 	}
 	if u.IsBot {
 		out.Email = ""
@@ -115,7 +121,10 @@ type Place struct {
 	MemberCount int32     `json:"member_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	// VotingEnabled turns topic votes (and the controversial feed sort) on.
-	VotingEnabled bool `json:"voting_enabled" doc:"Topics can be voted up and down; when off, feeds rank by reactions on opening posts"`
+	VotingEnabled bool   `json:"voting_enabled" doc:"Topics can be voted up and down; when off, feeds rank by reactions on opening posts"`
+	Indexable     bool   `json:"indexable" doc:"The place's owners allow its public boards in search engines and the public Gotalk directory"`
+	Indexed       bool   `json:"indexed" doc:"The place is in the public index right now (indexable, public, not NSFW, and the instance is listed)"`
+	IndexNotice   string `json:"index_notice" doc:"Plain-language explanation of the place's search indexing, for display to owners and members"`
 	// MyPermissions is present only when the caller is a member.
 	MyPermissions *int64 `json:"my_permissions,omitempty" doc:"Caller's effective permission bits; present only for members"`
 }
@@ -136,6 +145,9 @@ func toPlace(p store.Place) Place {
 		CreatedAt:   p.CreatedAt,
 
 		VotingEnabled: p.VotingEnabled,
+		Indexable:     p.Indexable,
+		Indexed:       p.InIndex,
+		IndexNotice:   service.PlaceIndexNotice(p),
 	}
 }
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/ping-request.schema.json",
+  "title": "POST https://gotalk.sh/api/index/v1/ping",
+  "type": "object",
+  "required": ["origin"],
+  "properties": {
+    "origin": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/originUrl" }
+  },
+  "additionalProperties": false
+}

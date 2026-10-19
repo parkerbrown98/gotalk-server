@@ -1,0 +1,7 @@
+{
+  "type": "https://gotalk.sh/problems/rate_limited",
+  "title": "Too Many Requests",
+  "status": 429,
+  "detail": "Slow down and retry after the Retry-After interval.",
+  "code": "rate_limited"
+}

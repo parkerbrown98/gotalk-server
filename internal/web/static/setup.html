@@ -133,7 +133,7 @@
       <dl>
         <dt>Server address</dt><dd><code id="doneURL"></code></dd>
         <dt>API docs</dt><dd><a href="/api/v1/docs">/api/v1/docs</a></dd>
-        <dt>Settings</dt><dd><a href="/setup">/setup</a> &mdash; sign in as an administrator to change storage, email, voice or CORS</dd>
+        <dt>Settings</dt><dd><a href="/setup">/setup</a> &mdash; sign in as an administrator to change storage, email, voice, CORS or directory listing</dd>
       </dl>
       <div class="error" id="doneErr"></div>
       <div class="actions"><span></span><a href="/"><button class="primary">Go to instance</button></a></div>
@@ -142,7 +142,7 @@
 
   <div id="settings" class="hidden">
     <h1>Instance settings</h1>
-    <p class="muted">Storage, email, voice and CORS for this Gotalk instance. Sections set in the config file or environment are read-only here.</p>
+    <p class="muted">Storage, email, voice, CORS and public directory listing for this Gotalk instance. Sections set in the config file or environment are read-only here.</p>
     <div class="card" id="login">
       <h2>Sign in</h2>
       <p class="muted">Use an instance administrator account.</p>
@@ -303,6 +303,41 @@
     return { editable, read: () => ({ allowed_origins: ta.value.split(/[\s,]+/).filter(Boolean), allow_credentials: cred.checked }) };
   };
 
+  // directoryForm lists the instance in the public Gotalk directory. status() loads the
+  // server's notice, published keys and indexed count.
+  const directoryForm = (el, sec, status) => {
+    const editable = sec.editable !== false, s = sec.settings || {}, secrets = new Set(sec.secrets_set || []);
+    const listed = h("input", { type: "checkbox", disabled: !editable }); listed.checked = !!s.listed;
+    const email = h("input", { type: "email", disabled: !editable, placeholder: "ops@example.com (optional, for abuse reports)" });
+    email.value = s.contact_email || "";
+    const noPings = h("input", { type: "checkbox", disabled: !editable }); noPings.checked = !!s.pings_disabled;
+    const platform = h("input", { type: "url", disabled: !editable, placeholder: "https://gotalk.sh" });
+    platform.value = s.platform_url || "";
+    const key = h("input", { type: "password", autocomplete: "off", disabled: !editable,
+      placeholder: secrets.has("signing_key") ? "•••••••• (leave empty to keep)" : "Generated automatically when empty" });
+    const notice = h("p", { class: "muted" }), keys = h("p", { class: "muted" });
+    status().then(st => {
+      notice.textContent = st.notice;
+      keys.textContent = st.listed ? st.places_indexed + " place(s) indexed · signing key " + st.key_source
+        + (st.public_keys.length ? " · " + st.public_keys.map(k => k.public_key).join(", ") : "") : "";
+    }).catch(() => {});
+    el.replaceChildren(...present(
+      editable ? null : h("div", { class: "locked", text: "Set by the config file or environment (" + sec.config_key + "); change it there." }),
+      notice, h("label", { class: "inline" }, listed, "List this instance in the public directory"),
+      h("label", {}, "Contact email", email), h("label", { class: "inline" }, noPings, "Do not ping the index after changes"),
+      h("label", {}, "Index URL", platform), h("label", {}, "Ping signing key (Ed25519 seed, base64url)", key), keys));
+    return {
+      editable,
+      read: () => {
+        const out = { listed: listed.checked, pings_disabled: noPings.checked };
+        if (email.value.trim()) out.contact_email = email.value.trim();
+        if (platform.value.trim()) out.platform_url = platform.value.trim();
+        if (key.value.trim()) out.signing_key = key.value.trim();
+        return out;
+      },
+    };
+  };
+
   // ---------------------------------------------------------------- first-run wizard
   const runWizard = status => {
     $("wizard").classList.remove("hidden");
@@ -441,11 +476,13 @@
     let access = "";
     const call = (method, path, body) => api(method, path, body, { Authorization: "Bearer " + access });
 
-    const titles = { storage: "File storage", mail: "Email", voice: "Voice & video", cors: "CORS (browser origins)" };
+    const titles = { storage: "File storage", mail: "Email", voice: "Voice & video", cors: "CORS (browser origins)", directory: "Public directory" };
     const drawSections = cfg => {
-      $("sections").replaceChildren(...["storage", "mail", "voice", "cors"].map(name => {
+      $("sections").replaceChildren(...["storage", "mail", "voice", "cors", "directory"].map(name => {
         const sec = cfg[name], body = h("div"), results = h("ul", { class: "checks" }), error = h("div", { class: "error" });
-        const form = name === "cors" ? corsForm(body, sec) : providerForm(body, name, sec);
+        const form = name === "cors" ? corsForm(body, sec)
+          : name === "directory" ? directoryForm(body, sec, () => call("GET", "/instance/directory"))
+          : providerForm(body, name, sec);
         const when = sec.updated_at ? " · saved " + new Date(sec.updated_at).toLocaleString() : "";
         const run = async (btn, fn) => {
           btn.disabled = true; error.textContent = "";

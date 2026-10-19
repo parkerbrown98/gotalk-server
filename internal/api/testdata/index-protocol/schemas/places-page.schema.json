@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/places-page.schema.json",
+  "title": "GET {index_url}/places",
+  "description": "Indexable places, each with its indexable boards, ordered by id.",
+  "type": "object",
+  "required": ["items", "next_cursor"],
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "#/$defs/place" } },
+    "next_cursor": {
+      "oneOf": [
+        { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/cursor" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "place": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "name",
+        "description",
+        "icon_url",
+        "member_count",
+        "tags",
+        "updated_at",
+        "boards"
+      ],
+      "properties": {
+        "id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+        "slug": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "icon_url": { "oneOf": [{ "type": "string", "format": "uri" }, { "type": "null" }] },
+        "member_count": { "type": "integer", "minimum": 0 },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "locale": { "type": "string" },
+        "updated_at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        "boards": { "type": "array", "items": { "$ref": "#/$defs/board" } }
+      }
+    },
+    "board": {
+      "description": "A board or a category that only groups boards. parent_id is a board ID, or null at the top level.",
+      "type": "object",
+      "required": ["id", "parent_id", "slug", "name", "description", "position", "updated_at"],
+      "properties": {
+        "id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+        "parent_id": {
+          "oneOf": [
+            { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+            { "type": "null" }
+          ]
+        },
+        "kind": { "enum": ["category", "board"] },
+        "slug": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "position": { "type": "integer" },
+        "updated_at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" }
+      }
+    }
+  }
+}

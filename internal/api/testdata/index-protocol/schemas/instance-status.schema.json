@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/instance-status.schema.json",
+  "title": "GET https://gotalk.sh/api/index/v1/instances?origin={origin}",
+  "type": "object",
+  "required": ["origin", "status", "listed_since", "places_indexed", "topics_indexed", "last_crawl_at"],
+  "properties": {
+    "origin": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/originUrl" },
+    "status": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/instanceStatus" },
+    "listed_since": {
+      "oneOf": [
+        { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "places_indexed": { "type": "integer", "minimum": 0 },
+    "topics_indexed": { "type": "integer", "minimum": 0 },
+    "last_crawl_at": {
+      "oneOf": [
+        { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

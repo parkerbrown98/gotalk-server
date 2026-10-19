@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/registration-response.schema.json",
+  "title": "201 response to POST https://gotalk.sh/api/index/v1/instances",
+  "type": "object",
+  "required": ["origin", "status"],
+  "properties": {
+    "origin": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/originUrl" },
+    "status": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/instanceStatus" }
+  }
+}

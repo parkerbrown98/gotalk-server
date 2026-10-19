@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/topic.schema.json",
+  "title": "GET {index_url}/topics/{topic_id}",
+  "description": "The topic summary plus one page of its posts, in post-number order. Every page repeats the summary.",
+  "$ref": "https://gotalk.sh/schemas/index/v1/board-topics-page.schema.json#/$defs/topicFields",
+  "type": "object",
+  "required": ["place_id", "board_id", "posts", "next_cursor"],
+  "properties": {
+    "place_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+    "board_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+    "posts": { "type": "array", "items": { "$ref": "#/$defs/post" } },
+    "next_cursor": {
+      "oneOf": [
+        { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/cursor" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "post": {
+      "type": "object",
+      "required": [
+        "id",
+        "number",
+        "parent_id",
+        "author",
+        "content",
+        "created_at",
+        "edited_at",
+        "is_solution"
+      ],
+      "properties": {
+        "id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+        "number": {
+          "description": "Stable and increasing. Posts removed from the index leave gaps.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "oneOf": [
+            { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+            { "type": "null" }
+          ]
+        },
+        "author": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/author" },
+        "content": { "description": "Markdown source, never pre-rendered HTML.", "type": "string" },
+        "created_at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        "edited_at": {
+          "oneOf": [
+            { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "is_solution": { "type": "boolean" }
+      }
+    }
+  }
+}

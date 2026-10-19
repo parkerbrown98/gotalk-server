@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/well-known.schema.json",
+  "title": "GET /.well-known/gotalk-instance",
+  "type": "object",
+  "required": ["software", "version", "instance_url", "api_base_url", "api_versions", "instance_info_url"],
+  "properties": {
+    "software": { "type": "string", "minLength": 1 },
+    "version": { "type": "string" },
+    "instance_url": { "type": "string", "format": "uri" },
+    "api_base_url": { "type": "string", "format": "uri" },
+    "api_versions": { "type": "array", "items": { "type": "string" } },
+    "instance_info_url": { "type": "string", "format": "uri" },
+    "gateway_url": { "type": "string" },
+    "directory": { "$ref": "https://gotalk.sh/schemas/index/v1/directory.schema.json" }
+  }
+}

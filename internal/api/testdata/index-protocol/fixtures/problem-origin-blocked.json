@@ -1,0 +1,7 @@
+{
+  "type": "https://gotalk.sh/problems/origin_blocked",
+  "title": "Forbidden",
+  "status": 403,
+  "detail": "This origin cannot be registered.",
+  "code": "origin_blocked"
+}

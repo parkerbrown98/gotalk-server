@@ -1,0 +1,111 @@
+{
+  "$comment": "The place After Dark (0196bbff-6880-7b47-8577-5cb6a811ef02) is public and has indexable on, but is NSFW. NSFW places cannot be indexed in v1, so it is left out.",
+  "items": [
+    {
+      "id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "slug": "rust-help",
+      "name": "Rust Help",
+      "description": "Questions and answers about Rust, from first borrow to unsafe code.",
+      "icon_url": "https://forum.example/media/places/rust-help/icon.png",
+      "member_count": 4210,
+      "tags": ["programming", "rust"],
+      "locale": "en",
+      "updated_at": "2026-10-17T21:04:00Z",
+      "boards": [
+        {
+          "id": "0195561a-0260-7cf4-beb7-55eacc9b87c1",
+          "parent_id": null,
+          "kind": "category",
+          "slug": "learning",
+          "name": "Learning",
+          "description": "Boards for learning Rust.",
+          "position": 1,
+          "updated_at": "2025-03-02T09:05:00Z"
+        },
+        {
+          "id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+          "parent_id": "0195561a-0260-7cf4-beb7-55eacc9b87c1",
+          "kind": "board",
+          "slug": "beginners",
+          "name": "Beginners",
+          "description": "New to Rust? Start here.",
+          "position": 1,
+          "updated_at": "2026-10-17T21:04:00Z"
+        },
+        {
+          "id": "0195561b-d720-731c-813a-56a9637e04b5",
+          "parent_id": "0195561a-0260-7cf4-beb7-55eacc9b87c1",
+          "kind": "board",
+          "slug": "advanced",
+          "name": "Advanced",
+          "description": "Trait tricks, async internals and performance.",
+          "position": 2,
+          "updated_at": "2026-09-01T12:00:00Z"
+        },
+        {
+          "id": "0198c2d8-1d80-7e78-a4a6-a61d05c1d16e",
+          "parent_id": "0195561b-d720-731c-813a-56a9637e04b5",
+          "kind": "board",
+          "slug": "unsafe-rust",
+          "name": "Unsafe Rust",
+          "description": "Raw pointers, FFI and soundness reviews.",
+          "position": 1,
+          "updated_at": "2025-08-19T15:00:00Z"
+        },
+        {
+          "id": "0195561c-c180-7fda-b022-070dddd356f0",
+          "parent_id": null,
+          "kind": "board",
+          "slug": "announcements",
+          "name": "Announcements",
+          "description": "News from the moderators.",
+          "position": 2,
+          "updated_at": "2026-06-30T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "01972fa7-9000-715f-98e5-b21870721770",
+      "slug": "homelab",
+      "name": "Homelab",
+      "description": "Servers in closets, racks in garages.",
+      "icon_url": null,
+      "member_count": 860,
+      "tags": ["self-hosting", "hardware"],
+      "updated_at": "2026-09-30T19:00:00Z",
+      "boards": [
+        {
+          "id": "01972fa8-7a60-718c-ae26-b2d4f2b468c6",
+          "parent_id": null,
+          "kind": "board",
+          "slug": "general",
+          "name": "General",
+          "description": "Show off your setup.",
+          "position": 1,
+          "updated_at": "2025-06-02T08:01:00Z"
+        },
+        {
+          "id": "01972fa9-64c0-71a4-a901-dda2550b3d28",
+          "parent_id": null,
+          "kind": "board",
+          "slug": "networking",
+          "name": "Networking",
+          "description": "VLANs, firewalls and Wi-Fi.",
+          "position": 2,
+          "updated_at": "2025-06-02T08:02:00Z"
+        },
+        {
+          "id": "01999bfe-ef80-71f5-9311-64647fae373e",
+          "parent_id": null,
+          "kind": "board",
+          "slug": "reverse-proxies",
+          "name": "Reverse proxies",
+          "description": "Caddy, nginx, Traefik and TLS.",
+          "position": 3,
+          "updated_at": "2025-09-30T19:00:00Z"
+        }
+      ]
+    }
+  ],
+  "next_cursor": "eyJrIjoicGxhY2VzIiwiYWZ0ZXIiOiIwMTk3MmZhNy05MDAwLTcxNWYtOThlNS1iMjE4NzA3MjE3NzAifQ"
+}

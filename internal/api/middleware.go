@@ -268,7 +268,11 @@ func (s *Server) rateLimitMiddleware(ctx huma.Context, next func(huma.Context)) 
 	if t, ok := ctx.Operation().Metadata[rateLimitTierKey].(string); ok {
 		tier = t
 	}
-	res, err := s.Limiter.Take(ctx.Context(), tier, rateLimitKey(ctx.Context()))
+	key := rateLimitKey(ctx.Context())
+	if tier == ratelimit.TierIndex {
+		key = "ip:" + clientFrom(ctx.Context()).IP
+	}
+	res, err := s.Limiter.Take(ctx.Context(), tier, key)
 	if err != nil {
 		s.Logger.Warn("rate limiter unavailable; allowing request", "error", err)
 		next(ctx)
@@ -283,8 +287,12 @@ func (s *Server) rateLimitMiddleware(ctx huma.Context, next func(huma.Context)) 
 	if res.Reached {
 		retry := max(int64(time.Until(res.Reset).Seconds()), 1)
 		ctx.SetHeader("Retry-After", strconv.FormatInt(retry, 10))
-		_ = huma.WriteErr(s.api, ctx, http.StatusTooManyRequests,
-			"rate limit exceeded; retry after "+strconv.FormatInt(retry, 10)+"s")
+		detail := "rate limit exceeded; retry after " + strconv.FormatInt(retry, 10) + "s"
+		if tier == ratelimit.TierIndex {
+			writeIndexProblem(ctx, http.StatusTooManyRequests, "rate_limited", detail)
+			return
+		}
+		_ = huma.WriteErr(s.api, ctx, http.StatusTooManyRequests, detail)
 		return
 	}
 	next(ctx)

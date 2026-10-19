@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "id": "01a145d1-3160-708f-8be5-d832d1544745",
+      "slug": "when-can-i-rely-on-lifetime-elision",
+      "title": "When can I rely on lifetime elision?",
+      "author": {
+        "id": "0195faae-93e0-79c7-bfbc-ce60b9bd3c01",
+        "username": "gopher",
+        "display_name": "Gopher"
+      },
+      "created_at": "2026-10-16T17:45:00Z",
+      "updated_at": "2026-10-16T19:02:00Z",
+      "reply_count": 1,
+      "pinned": false,
+      "locked": false,
+      "archived": false,
+      "solved": false,
+      "tags": ["lifetimes"]
+    },
+    {
+      "id": "01a1261e-dfc0-7644-b81a-34024ef98d26",
+      "slug": "why-does-borrow-checker-complain",
+      "title": "Why does the borrow checker complain here?",
+      "author": {
+        "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+        "username": "ferris",
+        "display_name": "Ferris"
+      },
+      "created_at": "2026-10-10T14:02:00Z",
+      "updated_at": "2026-10-17T20:11:00Z",
+      "reply_count": 4,
+      "pinned": false,
+      "locked": false,
+      "archived": false,
+      "solved": true,
+      "tags": ["borrowck", "lifetimes"]
+    }
+  ],
+  "next_cursor": null
+}

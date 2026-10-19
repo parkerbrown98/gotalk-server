@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/directory.schema.json",
+  "title": "The directory block of /.well-known/gotalk-instance",
+  "description": "Absent, or listed false, means the instance is not listed.",
+  "type": "object",
+  "required": ["listed", "protocol", "index_url"],
+  "properties": {
+    "listed": { "type": "boolean" },
+    "protocol": { "type": "integer", "minimum": 1 },
+    "index_url": { "type": "string", "format": "uri" },
+    "contact_email": { "type": "string", "format": "email" },
+    "keys": {
+      "description": "Ed25519 public keys allowed to sign pings.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["alg", "public_key"],
+        "properties": {
+          "alg": { "const": "Ed25519" },
+          "public_key": {
+            "description": "The 32-byte public key, unpadded base64url.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      }
+    }
+  }
+}

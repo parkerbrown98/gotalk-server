@@ -36,6 +36,8 @@ type ProfileUpdateRequest struct {
 	Bio         *string `json:"bio,omitempty" maxLength:"1000"`
 	Pronouns    *string `json:"pronouns,omitempty" maxLength:"40"`
 	AvatarURL   *string `json:"avatar_url,omitempty" maxLength:"2048" doc:"Empty string clears the avatar"`
+	// ExcludeFromIndex is an account setting rather than a profile field.
+	ExcludeFromIndex *bool `json:"exclude_from_index,omitempty" doc:"Keep your posts out of search engines and the public Gotalk directory; removal takes effect within an hour"`
 }
 
 type PasswordChangeRequest struct {
@@ -115,6 +117,8 @@ func (s *Server) registerUsers() {
 				Bio:         in.Body.Bio,
 				Pronouns:    in.Body.Pronouns,
 				AvatarURL:   in.Body.AvatarURL,
+
+				ExcludeFromIndex: in.Body.ExcludeFromIndex,
 			})
 			if err != nil {
 				return nil, err

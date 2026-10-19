@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/problem.schema.json",
+  "title": "An RFC 9457 problem details response (application/problem+json)",
+  "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/problem"
+}

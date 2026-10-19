@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -38,11 +40,12 @@ type ConfigDrivers struct {
 
 // InstanceConfig is the pluggable provider configuration.
 type InstanceConfig struct {
-	Storage ConfigSection[storage.Settings]      `json:"storage"`
-	Mail    ConfigSection[mail.Settings]         `json:"mail"`
-	Voice   ConfigSection[service.VoiceSettings] `json:"voice"`
-	CORS    ConfigSection[service.CORSSettings]  `json:"cors"`
-	Drivers ConfigDrivers                        `json:"drivers" doc:"Available storage and mail drivers"`
+	Storage   ConfigSection[storage.Settings]          `json:"storage"`
+	Mail      ConfigSection[mail.Settings]             `json:"mail"`
+	Voice     ConfigSection[service.VoiceSettings]     `json:"voice"`
+	CORS      ConfigSection[service.CORSSettings]      `json:"cors"`
+	Directory ConfigSection[service.DirectorySettings] `json:"directory" doc:"Listing in the public Gotalk directory; see GET /instance/directory for keys and status"`
+	Drivers   ConfigDrivers                            `json:"drivers" doc:"Available storage and mail drivers"`
 }
 
 func section[T any](v service.SectionView) ConfigSection[T] {
@@ -66,6 +69,8 @@ func (s *Server) instanceConfig() InstanceConfig {
 			out.Voice = section[service.VoiceSettings](v)
 		case service.SectionCORS:
 			out.CORS = section[service.CORSSettings](v)
+		case service.SectionDirectory:
+			out.Directory = section[service.DirectorySettings](v)
 		}
 	}
 	return out
@@ -87,7 +92,7 @@ type ConfigTestRequest struct {
 }
 
 type SectionPath struct {
-	Section string `path:"section" enum:"storage,mail,voice,cors"`
+	Section string `path:"section" enum:"storage,mail,voice,cors,directory"`
 }
 
 func requireAdmin(ctx context.Context) error {
@@ -135,6 +140,8 @@ func (s *Server) registerInstanceConfig() {
 			}
 			return ok(ChecksResponse{Checks: toChecks(checks)})
 		}))
+
+	s.registerDirectoryAdmin()
 
 	huma.Register(s.api, withAuth(operation("get-instance-checks", http.MethodGet, "/instance/checks",
 		"Run the pre-flight checks against the live configuration (instance admins only)", tagInstance)),
@@ -331,5 +338,115 @@ func (s *Server) registerEmailFlows() {
 		"/users/@me/email/verification", "Email a link that verifies the account's address", tagUsers)), http.StatusAccepted))),
 		handle(s, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
 			return nil, s.Service.SendVerificationEmail(ctx, mustPrincipal(ctx), baseURLFrom(ctx))
+		}))
+}
+
+// PublicKeyInfo is a published ping verification key.
+type PublicKeyInfo struct {
+	Alg       string `json:"alg" enum:"Ed25519"`
+	PublicKey string `json:"public_key" doc:"Unpadded base64url"`
+}
+
+// DirectoryStatus is the administrators' view of listing in the public directory.
+type DirectoryStatus struct {
+	Listed            bool              `json:"listed"`
+	Source            string            `json:"source" enum:"default,config,settings"`
+	Editable          bool              `json:"editable" doc:"Change listing with PATCH /instance/config (section directory) unless it is set in the config file or environment"`
+	IndexURL          string            `json:"index_url" doc:"Base URL of this instance's index endpoints"`
+	PlatformURL       string            `json:"platform_url"`
+	PlatformStatusURL string            `json:"platform_status_url" doc:"The index's public status for this instance (status, counts, last crawl)"`
+	OperatorGuideURL  string            `json:"operator_guide_url"`
+	Pings             bool              `json:"pings"`
+	KeySource         string            `json:"key_source" enum:"none,generated,configured" doc:"Where the ping signing key comes from; none while listing is off"`
+	PublicKeys        []PublicKeyInfo   `json:"public_keys" doc:"Keys published in the well-known document; the signing key first"`
+	PreviousKey       *string           `json:"previous_key" doc:"Retired key still published after a rotation, until revoked"`
+	PlacesIndexed     int64             `json:"places_indexed"`
+	LastPingAt        *time.Time        `json:"last_ping_at"`
+	Notice            string            `json:"notice" doc:"Plain-language explanation to show next to the listing switch"`
+	LicensePending    bool              `json:"license_pending" doc:"The policy clause that licenses excerpts to the index is pending legal review"`
+	PolicyText        map[string]string `json:"policy_text" doc:"Suggested policy sections (terms, privacy, guidelines) for a listed instance, in Markdown"`
+}
+
+func (s *Server) directoryStatus(ctx context.Context) (*Body[DirectoryStatus], error) {
+	st, err := s.Service.DirectoryStatus(ctx, mustPrincipal(ctx))
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]PublicKeyInfo, len(st.Keys))
+	for i, k := range st.Keys {
+		keys[i] = PublicKeyInfo{Alg: k.Alg, PublicKey: k.PublicKey}
+	}
+	origin := s.instanceOrigin(ctx)
+	return ok(DirectoryStatus{
+		Listed: st.Listed, Source: st.Source, Editable: st.Editable,
+		IndexURL: baseURLFrom(ctx) + APIPrefix + indexPath, PlatformURL: st.PlatformURL,
+		PlatformStatusURL: st.PlatformURL + "/api/index/v1/instances?origin=" + url.QueryEscape(origin),
+		OperatorGuideURL:  st.PlatformURL + "/list-your-instance",
+		Pings:             st.Pings, KeySource: st.KeySource, PublicKeys: keys, PreviousKey: st.PreviousKey,
+		PlacesIndexed: st.PlacesIndexed, LastPingAt: st.LastPingAt, Notice: st.Notice,
+		LicensePending: st.LicensePending, PolicyText: st.PolicyText,
+	})
+}
+
+// InstanceAuditEntry is one instance-wide audit log entry.
+type InstanceAuditEntry struct {
+	ID         string         `json:"id" format:"uuid"`
+	ActorID    *string        `json:"actor_id" format:"uuid"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type"`
+	TargetID   *string        `json:"target_id" format:"uuid"`
+	Metadata   map[string]any `json:"metadata"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type InstanceAuditInput struct {
+	Before string `query:"before" format:"uuid" doc:"Return entries older than this entry ID"`
+	Limit  int32  `query:"limit" minimum:"1" maximum:"100" default:"50"`
+}
+
+func (s *Server) registerDirectoryAdmin() {
+	huma.Register(s.api, withSessionOnly(withAuth(operation("get-instance-directory", http.MethodGet, "/instance/directory",
+		"Show directory listing status, published keys, notices and suggested policy text (instance admins only)", tagInstance))),
+		handle(s, func(ctx context.Context, _ *struct{}) (*Body[DirectoryStatus], error) {
+			return s.directoryStatus(ctx)
+		}))
+
+	huma.Register(s.api, withSessionOnly(withAuth(operation("rotate-directory-key", http.MethodPost, "/instance/directory/keys/rotate",
+		"Replace the generated ping signing key; the old key stays published until revoked (instance admins only)", tagInstance))),
+		handle(s, func(ctx context.Context, _ *struct{}) (*Body[DirectoryStatus], error) {
+			if err := s.Service.RotateDirectoryKey(ctx, mustPrincipal(ctx)); err != nil {
+				return nil, err
+			}
+			return s.directoryStatus(ctx)
+		}))
+
+	huma.Register(s.api, withSessionOnly(withStatus(withAuth(operation("revoke-previous-directory-key", http.MethodDelete, "/instance/directory/keys/previous",
+		"Stop publishing the key retired by the last rotation (instance admins only)", tagInstance)), http.StatusOK)),
+		handle(s, func(ctx context.Context, _ *struct{}) (*Body[DirectoryStatus], error) {
+			if err := s.Service.RevokePreviousDirectoryKey(ctx, mustPrincipal(ctx)); err != nil {
+				return nil, err
+			}
+			return s.directoryStatus(ctx)
+		}))
+
+	huma.Register(s.api, withAuth(operation("list-instance-audit-log", http.MethodGet, "/instance/audit-log",
+		"List instance-wide audit entries such as directory listing changes, newest first (instance admins only)", tagInstance)),
+		handle(s, func(ctx context.Context, in *InstanceAuditInput) (*Body[[]InstanceAuditEntry], error) {
+			before, err := parseOptionalID("before", in.Before)
+			if err != nil {
+				return nil, err
+			}
+			rows, err := s.Service.ListInstanceAuditLog(ctx, mustPrincipal(ctx), before, in.Limit)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]InstanceAuditEntry, len(rows))
+			for i, r := range rows {
+				meta := map[string]any{}
+				_ = json.Unmarshal(r.Metadata, &meta)
+				out[i] = InstanceAuditEntry{ID: r.ID.String(), ActorID: idString(r.ActorID), Action: r.Action,
+					TargetType: r.TargetType, TargetID: idString(r.TargetID), Metadata: meta, CreatedAt: r.CreatedAt}
+			}
+			return ok(out)
 		}))
 }

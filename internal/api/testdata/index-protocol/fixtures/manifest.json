@@ -1,0 +1,221 @@
+{
+  "$comment": "Every fixture with the schema it must validate against (schemas/<schema>.schema.json) and the HTTP status it is served with (for request bodies, the status of the answer). In request, {origin} is the instance origin, {index_url} is directory.index_url and {cursor} is any earlier next_cursor.",
+  "fixtures": [
+    {
+      "file": "well-known-listed.json",
+      "schema": "well-known",
+      "status": 200,
+      "request": "GET {origin}/.well-known/gotalk-instance",
+      "description": "A listed instance with a ping key."
+    },
+    {
+      "file": "well-known-unlisted.json",
+      "schema": "well-known",
+      "status": 200,
+      "request": "GET {origin}/.well-known/gotalk-instance",
+      "description": "The operator turned listing off: the directory block stays but listed is false. Not listed."
+    },
+    {
+      "file": "well-known-no-directory.json",
+      "schema": "well-known",
+      "status": 200,
+      "request": "GET {origin}/.well-known/gotalk-instance",
+      "description": "An instance that never enabled listing: no directory block. Not listed."
+    },
+    {
+      "file": "places-page.json",
+      "schema": "places-page",
+      "status": 200,
+      "request": "GET {index_url}/places",
+      "description": "Every indexable place in one page, ordered by id. Rust Help has a category, child boards and a nested sub-board."
+    },
+    {
+      "file": "places-page-nsfw-skipped.json",
+      "schema": "places-page",
+      "status": 200,
+      "request": "GET {index_url}/places?limit=2",
+      "description": "A first page of two places. After Dark, whose id sorts between them, is NSFW and is skipped, so the page still holds two indexable places."
+    },
+    {
+      "file": "board-topics-page-1.json",
+      "schema": "board-topics-page",
+      "status": 200,
+      "request": "GET {index_url}/boards/0195561a-ecc0-7155-ab48-3f36ad46fef4/topics?limit=2",
+      "description": "First page of the Beginners board, ordered by updated_at then id."
+    },
+    {
+      "file": "board-topics-page-2.json",
+      "schema": "board-topics-page",
+      "status": 200,
+      "request": "GET {index_url}/boards/0195561a-ecc0-7155-ab48-3f36ad46fef4/topics?limit=2&cursor=eyJrIjoidG9waWNzIiwiYiI6IjAxOTU1NjFhLWVjYzAtNzE1NS1hYjQ4LTNmMzZhZDQ2ZmVmNCIsInUiOiIyMDI2LTEwLTE1VDA3OjU4OjAwWiIsImlkIjoiMDFhMTJmM2MtOGRhMC03ZTA1LWIxYjctYTc2MDJkN2NjNmYyIn0",
+      "description": "Second and last page of the Beginners board."
+    },
+    {
+      "file": "topic-page-1.json",
+      "schema": "topic",
+      "status": 200,
+      "request": "GET {index_url}/topics/01a1261e-dfc0-7644-b81a-34024ef98d26?limit=3",
+      "description": "First page of a solved topic with replies; post 3 replies to post 2."
+    },
+    {
+      "file": "topic-page-2.json",
+      "schema": "topic",
+      "status": 200,
+      "request": "GET {index_url}/topics/01a1261e-dfc0-7644-b81a-34024ef98d26?limit=3&cursor=eyJrIjoicG9zdHMiLCJ0IjoiMDFhMTI2MWUtZGZjMC03NjQ0LWI4MWEtMzQwMjRlZjk4ZDI2IiwiYWZ0ZXIiOjN9",
+      "description": "Last page. Post 4 (01a12cfd-9a20-7a7b-8127-e7affc8c47c7) is by a user who excluded their posts, so the numbers jump from 3 to 5. Post 5 is edited and is the solution."
+    },
+    {
+      "file": "topic-single-page.json",
+      "schema": "topic",
+      "status": 200,
+      "request": "GET {index_url}/topics/01a12f3c-8da0-7e05-b1b7-a7602d7cc6f2",
+      "description": "A topic that fits on one page."
+    },
+    {
+      "file": "topic-pinned-locked.json",
+      "schema": "topic",
+      "status": 200,
+      "request": "GET {index_url}/topics/01955630-e5c0-7467-83f9-2538ad525a7f",
+      "description": "A pinned, locked topic without replies."
+    },
+    {
+      "file": "topic-unsolved.json",
+      "schema": "topic",
+      "status": 200,
+      "request": "GET {index_url}/topics/01a145d1-3160-708f-8be5-d832d1544745",
+      "description": "An unsolved topic opened by gopher (see changes-user-exclude.json)."
+    },
+    {
+      "file": "topic-opening-post-excluded.json",
+      "schema": "problem",
+      "status": 404,
+      "request": "GET {index_url}/topics/01a13a11-af80-70f3-8b74-965237c09c30",
+      "description": "The opening post is by quietfox, who excluded their posts. The topic is not indexable even though replies remain, and is answered exactly like a missing one."
+    },
+    {
+      "file": "changes-page.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "A feed page with more events to come."
+    },
+    {
+      "file": "changes-page-coalesced.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "A coalesced feed: seq has gaps where earlier events for the same object were replaced by later ones."
+    },
+    {
+      "file": "changes-latest.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor=latest",
+      "description": "No events and a cursor for the current end of the feed, taken at the start of a reconcile."
+    },
+    {
+      "file": "changes-cursor-expired.json",
+      "schema": "problem",
+      "status": 410,
+      "request": "GET {index_url}/changes?cursor=eyJrIjoiY2hhbmdlcyIsImFmdGVyIjo5MDAwfQ",
+      "description": "The cursor is older than retained history. The indexer reconciles and resumes from cursor=latest."
+    },
+    {
+      "file": "changes-board-moved.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "The board Reverse proxies moved from Homelab to Self-Hosting: a board.delete for the old place, then a board.upsert for the new one, with the same board_id."
+    },
+    {
+      "file": "changes-topic-moved.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "The file topic moved from Beginners to Advanced: one topic.upsert carrying the new board_id. The indexer re-reads the topic."
+    },
+    {
+      "file": "changes-user-exclude.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "gopher excluded their posts: user.exclude, then topic.delete for the topic whose opening post is theirs. Their replies elsewhere are dropped through user.exclude."
+    },
+    {
+      "file": "changes-user-include.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "gopher included their posts again: user.include, then a topic.upsert for every topic with a post of theirs."
+    },
+    {
+      "file": "changes-unknown-event-type.json",
+      "schema": "changes-page",
+      "status": 200,
+      "request": "GET {index_url}/changes?cursor={cursor}",
+      "description": "Forward compatibility: an event type this version does not define. Consumers skip it and keep the cursor moving."
+    },
+    {
+      "file": "problem-rate-limited.json",
+      "schema": "problem",
+      "status": 429,
+      "request": "any instance or platform endpoint",
+      "description": "Sent with a Retry-After header, which the client honors."
+    },
+    {
+      "file": "ping-request.json",
+      "schema": "ping-request",
+      "status": 202,
+      "request": "POST https://gotalk.sh/api/index/v1/ping",
+      "description": "A ping body. See signing-vector.json for the headers. Answered 202 with no body."
+    },
+    {
+      "file": "problem-invalid-signature.json",
+      "schema": "problem",
+      "status": 401,
+      "request": "POST https://gotalk.sh/api/index/v1/ping",
+      "description": "A ping whose signature does not verify."
+    },
+    {
+      "file": "registration-request.json",
+      "schema": "registration-request",
+      "status": 201,
+      "request": "POST https://gotalk.sh/api/index/v1/instances",
+      "description": "Register an origin. Answered 201 with registration-response.json."
+    },
+    {
+      "file": "registration-response.json",
+      "schema": "registration-response",
+      "status": 201,
+      "request": "POST https://gotalk.sh/api/index/v1/instances",
+      "description": "A new registration is pending until it passes the quality gate."
+    },
+    {
+      "file": "problem-verification-failed.json",
+      "schema": "problem",
+      "status": 422,
+      "request": "POST https://gotalk.sh/api/index/v1/instances",
+      "description": "The well-known check failed; detail names the check. Nothing is stored."
+    },
+    {
+      "file": "problem-origin-blocked.json",
+      "schema": "problem",
+      "status": 403,
+      "request": "POST https://gotalk.sh/api/index/v1/instances",
+      "description": "The origin is on the blocklist."
+    },
+    {
+      "file": "instance-status.json",
+      "schema": "instance-status",
+      "status": 200,
+      "request": "GET https://gotalk.sh/api/index/v1/instances?origin=https%3A%2F%2Fforum.example",
+      "description": "The public status of a listed origin, as shown on the operator status page."
+    }
+  ],
+  "vectors": [
+    {
+      "file": "signing-vector.json",
+      "description": "Ping signing (GOTALK-INDEX-SIG-V1) test vector."
+    }
+  ]
+}

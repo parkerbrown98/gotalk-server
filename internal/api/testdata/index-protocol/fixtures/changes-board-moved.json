@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "seq": 10260,
+      "type": "board.delete",
+      "at": "2026-10-18T08:00:00Z",
+      "place_id": "01972fa7-9000-715f-98e5-b21870721770",
+      "board_id": "01999bfe-ef80-71f5-9311-64647fae373e"
+    },
+    {
+      "seq": 10261,
+      "type": "board.upsert",
+      "at": "2026-10-18T08:00:00Z",
+      "place_id": "019bb301-d380-7001-bc60-506a89e87a65",
+      "board_id": "01999bfe-ef80-71f5-9311-64647fae373e"
+    }
+  ],
+  "next_cursor": "eyJrIjoiY2hhbmdlcyIsImFmdGVyIjoxMDI2MX0",
+  "has_more": false
+}

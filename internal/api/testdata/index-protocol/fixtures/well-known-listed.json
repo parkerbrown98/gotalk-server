@@ -1,0 +1,21 @@
+{
+  "software": "gotalk",
+  "version": "1.4.0",
+  "instance_url": "https://forum.example",
+  "api_base_url": "https://forum.example/api/v1",
+  "api_versions": ["v1"],
+  "instance_info_url": "https://forum.example/api/v1/instance",
+  "gateway_url": "wss://forum.example/api/v1/gateway",
+  "directory": {
+    "listed": true,
+    "protocol": 1,
+    "index_url": "https://forum.example/api/v1/index",
+    "contact_email": "ops@forum.example",
+    "keys": [
+      {
+        "alg": "Ed25519",
+        "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+      }
+    ]
+  }
+}

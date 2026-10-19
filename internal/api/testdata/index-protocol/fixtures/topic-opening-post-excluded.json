@@ -1,0 +1,8 @@
+{
+  "type": "https://gotalk.sh/problems/not_found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "No such topic.",
+  "code": "not_found",
+  "$comment": "Topic 01a13a11-af80-70f3-8b74-965237c09c30 was opened by quietfox (0197f13e-e380-7a56-a98a-332db31a83c7), who has exclude_from_index on. A reply by ferris remains."
+}

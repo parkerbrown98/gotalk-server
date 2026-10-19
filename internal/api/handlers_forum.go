@@ -70,6 +70,7 @@ type UpdateBoardRequest struct {
 	ReplyMode        *string `json:"reply_mode,omitempty" enum:"flat,threaded"`
 	SolutionsEnabled *bool   `json:"solutions_enabled,omitempty"`
 	IsNSFW           *bool   `json:"is_nsfw,omitempty"`
+	Indexable        *bool   `json:"indexable,omitempty" doc:"false keeps the board (and its sub-boards) out of search engines even when the place is indexed; true is rejected for NSFW boards"`
 }
 
 type OverwriteRequest struct {
@@ -226,7 +227,7 @@ func (s *Server) registerBoards() {
 			b := in.Body
 			v, err := s.Service.UpdateBoard(ctx, mustPrincipal(ctx), id, service.BoardUpdate{
 				ParentID: b.ParentID, Slug: b.Slug, Name: b.Name, Description: b.Description, Position: b.Position,
-				ReplyMode: b.ReplyMode, SolutionsEnabled: b.SolutionsEnabled, IsNSFW: b.IsNSFW,
+				ReplyMode: b.ReplyMode, SolutionsEnabled: b.SolutionsEnabled, IsNSFW: b.IsNSFW, Indexable: b.Indexable,
 			})
 			if err != nil {
 				return nil, err

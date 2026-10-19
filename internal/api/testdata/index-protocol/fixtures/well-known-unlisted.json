@@ -1,0 +1,14 @@
+{
+  "software": "gotalk",
+  "version": "1.4.0",
+  "instance_url": "https://forum.example",
+  "api_base_url": "https://forum.example/api/v1",
+  "api_versions": ["v1"],
+  "instance_info_url": "https://forum.example/api/v1/instance",
+  "gateway_url": "wss://forum.example/api/v1/gateway",
+  "directory": {
+    "listed": false,
+    "protocol": 1,
+    "index_url": "https://forum.example/api/v1/index"
+  }
+}

@@ -102,6 +102,12 @@ type Stats struct {
 	Places int64 `json:"places"`
 }
 
+// DirectorySummary tells clients whether the instance is in the public directory.
+type DirectorySummary struct {
+	Listed        bool  `json:"listed" doc:"The instance is listed in the public Gotalk directory"`
+	PlacesIndexed int64 `json:"places_indexed" doc:"Places currently in the public index"`
+}
+
 type Instance struct {
 	Name             string               `json:"name"`
 	Description      string               `json:"description"`
@@ -120,6 +126,7 @@ type Instance struct {
 	Webhooks         WebhookInfo          `json:"webhooks"`
 	Feed             FeedInfo             `json:"feed"`
 	Stats            Stats                `json:"stats"`
+	Directory        DirectorySummary     `json:"directory"`
 }
 
 func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSetting) (Instance, error) {
@@ -155,7 +162,12 @@ func (s *Server) instanceInfo(ctx context.Context, settings store.InstanceSettin
 		return Instance{}, err
 	}
 	mailOn := s.Service.MailEnabled()
+	dir, err := s.Service.Directory(ctx)
+	if err != nil {
+		return Instance{}, err
+	}
 	return Instance{
+		Directory:   DirectorySummary{Listed: dir.Listed, PlacesIndexed: dir.PlacesIndexed},
 		Name:        settings.Name,
 		Description: settings.Description,
 		IconURL:     settings.IconUrl,
@@ -460,7 +472,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 	base := baseURLFrom(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{
+	doc := map[string]any{
 		"software":          "gotalk",
 		"version":           s.Version,
 		"instance_url":      base,
@@ -468,7 +480,19 @@ func (s *Server) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 		"api_versions":      SupportedAPIVersions,
 		"instance_info_url": base + APIPrefix + "/instance",
 		"gateway_url":       gatewayURL(base),
-	})
+	}
+	// A missing directory block means "not listed" to the index, so a failure must not
+	// look like one.
+	dir, err := s.wellKnownDirectory(r.Context(), base)
+	if err != nil {
+		s.Logger.Error("building the well-known directory block", "error", err)
+		writeProblem(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if dir != nil {
+		doc["directory"] = dir
+	}
+	writeJSON(w, http.StatusOK, doc)
 }
 
 func (s *Server) handleLanding(w http.ResponseWriter, _ *http.Request) {

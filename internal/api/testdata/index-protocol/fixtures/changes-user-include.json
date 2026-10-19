@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "seq": 10290,
+      "type": "user.include",
+      "at": "2026-10-18T09:24:15Z",
+      "user_id": "0195faae-93e0-79c7-bfbc-ce60b9bd3c01"
+    },
+    {
+      "seq": 10291,
+      "type": "topic.upsert",
+      "at": "2026-10-18T09:24:15Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a1261e-dfc0-7644-b81a-34024ef98d26"
+    },
+    {
+      "seq": 10292,
+      "type": "topic.upsert",
+      "at": "2026-10-18T09:24:15Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a145d1-3160-708f-8be5-d832d1544745"
+    }
+  ],
+  "next_cursor": "eyJrIjoiY2hhbmdlcyIsImFmdGVyIjoxMDI5Mn0",
+  "has_more": false
+}

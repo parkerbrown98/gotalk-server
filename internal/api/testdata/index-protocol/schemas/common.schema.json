@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/common.schema.json",
+  "title": "Gotalk index protocol v1: shared definitions",
+  "$defs": {
+    "id": {
+      "description": "An opaque ID, stable for the life of the object. Gotalk servers use UUIDs, but consumers must not parse IDs.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "timestamp": {
+      "description": "An RFC 3339 timestamp in UTC, for example 2026-10-18T09:24:15Z. Fractional seconds are allowed.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "cursor": {
+      "description": "An opaque pagination or feed cursor. Pass it back unchanged as the cursor parameter.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "author": {
+      "description": "A post or topic author. Only these three fields: content never carries email addresses, IP addresses or avatar URLs.",
+      "type": "object",
+      "required": ["id", "username", "display_name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "username": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "problem": {
+      "description": "An RFC 9457 problem details body. Gotalk sets type to https://gotalk.sh/problems/{code} and repeats the code.",
+      "type": "object",
+      "required": ["type", "title", "status"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "detail": { "type": "string" },
+        "instance": { "type": "string" },
+        "code": { "type": "string", "minLength": 1 }
+      }
+    },
+    "originUrl": {
+      "description": "An instance origin: scheme, host and optional port, no path.",
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/?#]+$"
+    },
+    "instanceStatus": {
+      "description": "An instance's status in the index.",
+      "enum": ["pending", "listed", "stale", "suspended", "blocked", "removed"]
+    }
+  }
+}

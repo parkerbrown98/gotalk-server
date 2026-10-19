@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/changes-page.schema.json",
+  "title": "GET {index_url}/changes",
+  "description": "Events in seq order. next_cursor is always present, also when events is empty.",
+  "type": "object",
+  "required": ["events", "next_cursor", "has_more"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": { "$ref": "https://gotalk.sh/schemas/index/v1/event.schema.json" }
+    },
+    "next_cursor": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/cursor" },
+    "has_more": { "type": "boolean" }
+  }
+}

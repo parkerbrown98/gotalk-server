@@ -40,6 +40,9 @@ type Board struct {
 	SolutionsEnabled bool       `json:"solutions_enabled" doc:"Q&A board: topics can mark an accepted answer"`
 	IsNSFW           bool       `json:"is_nsfw"`
 	IsPublic         bool       `json:"is_public" doc:"Readable by signed-out visitors and included in instance-wide search"`
+	Indexable        bool       `json:"indexable" doc:"The board may appear in search engines when its place is indexed (default true)"`
+	Indexed          bool       `json:"indexed" doc:"The board is in the public index right now"`
+	IndexNotice      string     `json:"index_notice" doc:"Plain-language explanation of the board's search indexing, for display"`
 	TopicCount       int32      `json:"topic_count"`
 	PostCount        int32      `json:"post_count"`
 	LastPostAt       *time.Time `json:"last_post_at"`
@@ -54,6 +57,7 @@ func toBoard(v service.BoardView) Board {
 		ID: b.ID.String(), PlaceID: b.PlaceID.String(), ParentID: idString(b.ParentID), Kind: b.Kind,
 		Slug: b.Slug, Name: b.Name, Description: b.Description, Position: b.Position, ReplyMode: b.ReplyMode,
 		SolutionsEnabled: b.SolutionsEnabled, IsNSFW: b.IsNsfw, IsPublic: b.IsPublic,
+		Indexable: b.Indexable, Indexed: b.InIndex, IndexNotice: service.BoardIndexNotice(b),
 		TopicCount: b.TopicCount, PostCount: b.PostCount, LastPostAt: b.LastPostAt, CreatedAt: b.CreatedAt,
 		MyPermissions: int64(v.Permissions), Subscription: v.Subscription,
 	}

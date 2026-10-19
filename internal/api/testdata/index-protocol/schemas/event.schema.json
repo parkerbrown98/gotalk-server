@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/event.schema.json",
+  "title": "One change feed event",
+  "description": "A reference to a changed object. Known types require the IDs in the protocol's table. Unknown types are valid so that consumers can skip them.",
+  "type": "object",
+  "required": ["seq", "type", "at"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 1 },
+    "type": { "type": "string", "minLength": 1 },
+    "at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+    "place_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+    "board_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+    "topic_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+    "user_id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "enum": ["place.upsert", "place.delete"] } } },
+      "then": { "required": ["place_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["board.upsert", "board.delete"] } } },
+      "then": { "required": ["place_id", "board_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["topic.upsert", "topic.delete"] } } },
+      "then": { "required": ["place_id", "board_id", "topic_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "enum": ["user.exclude", "user.include"] } } },
+      "then": { "required": ["user_id"] }
+    }
+  ]
+}

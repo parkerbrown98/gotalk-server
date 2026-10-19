@@ -1,0 +1,7 @@
+{
+  "type": "https://gotalk.sh/problems/cursor_expired",
+  "title": "Gone",
+  "status": 410,
+  "detail": "The cursor is older than the retained history. Run a reconcile.",
+  "code": "cursor_expired"
+}

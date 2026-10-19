@@ -1,0 +1,37 @@
+{
+  "id": "01955630-e5c0-7467-83f9-2538ad525a7f",
+  "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+  "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+  "slug": "read-this-before-posting",
+  "title": "Read this before posting",
+  "author": {
+    "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+    "username": "ferris",
+    "display_name": "Ferris"
+  },
+  "created_at": "2025-03-02T09:30:00Z",
+  "updated_at": "2026-01-05T12:00:00Z",
+  "reply_count": 0,
+  "pinned": true,
+  "locked": true,
+  "archived": false,
+  "solved": false,
+  "tags": [],
+  "posts": [
+    {
+      "id": "01955630-e5c0-7906-888c-5447d5e4ea7e",
+      "number": 1,
+      "parent_id": null,
+      "author": {
+        "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+        "username": "ferris",
+        "display_name": "Ferris"
+      },
+      "content": "Welcome! Before you post:\n\n1. Search first, your question may be answered.\n2. Include the full compiler error.\n3. Share a minimal example, ideally on the [playground](https://play.rust-lang.org).",
+      "created_at": "2025-03-02T09:30:00Z",
+      "edited_at": "2026-01-05T12:00:00Z",
+      "is_solution": false
+    }
+  ],
+  "next_cursor": null
+}

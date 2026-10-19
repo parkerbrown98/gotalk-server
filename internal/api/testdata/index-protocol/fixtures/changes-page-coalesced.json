@@ -1,0 +1,30 @@
+{
+  "$comment": "seq 10241-10243 were topic.upsert events for the borrow checker topic and 10245-10250 were replies to the file topic; each object keeps only its latest event. Consumers must not expect contiguous seq values.",
+  "events": [
+    {
+      "seq": 10240,
+      "type": "board.upsert",
+      "at": "2026-10-17T21:00:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561b-d720-731c-813a-56a9637e04b5"
+    },
+    {
+      "seq": 10244,
+      "type": "topic.upsert",
+      "at": "2026-10-17T21:04:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a1261e-dfc0-7644-b81a-34024ef98d26"
+    },
+    {
+      "seq": 10251,
+      "type": "topic.upsert",
+      "at": "2026-10-17T21:30:00Z",
+      "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+      "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+      "topic_id": "01a12f3c-8da0-7e05-b1b7-a7602d7cc6f2"
+    }
+  ],
+  "next_cursor": "eyJrIjoiY2hhbmdlcyIsImFmdGVyIjoxMDI1MX0",
+  "has_more": false
+}

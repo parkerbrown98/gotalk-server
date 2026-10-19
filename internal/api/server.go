@@ -84,6 +84,7 @@ func New(d Deps) (*Server, error) {
 	s.background.Go(func() { d.Service.RunMailDelivery(bg) })
 	s.background.Go(func() { d.Service.RunMaintenance(bg) })
 	s.background.Go(func() { d.Service.RunConfigWatcher(bg) })
+	s.background.Go(func() { d.Service.RunIndexPings(bg) })
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -106,6 +107,7 @@ func New(d Deps) (*Server, error) {
 
 	r.Route(APIPrefix, func(r chi.Router) {
 		r.Use(apiVersion)
+		r.Use(indexCaching)
 		r.Get(gatewayPathSuffix, s.handleGateway)
 		r.Post(voiceWebhookPath, s.handleVoiceWebhook)
 
@@ -153,6 +155,7 @@ func New(d Deps) (*Server, error) {
 		s.registerUploads()
 		s.registerAttachments()
 		s.registerEmailFlows()
+		s.registerIndex()
 	})
 
 	s.handler = r

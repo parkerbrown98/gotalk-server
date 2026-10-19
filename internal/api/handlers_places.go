@@ -66,6 +66,7 @@ type UpdatePlaceRequest struct {
 	BannerURL   *string `json:"banner_url,omitempty" maxLength:"2048" doc:"Empty string clears the banner"`
 	// VotingEnabled is a place setting rather than a profile field.
 	VotingEnabled *bool `json:"voting_enabled,omitempty" doc:"Turn topic voting on or off"`
+	Indexable     *bool `json:"indexable,omitempty" doc:"Allow the place's public boards to appear in search engines and the public Gotalk directory. Only takes effect for public, non-NSFW places on a listed instance; true is rejected for NSFW places"`
 }
 
 type TransferOwnershipRequest struct {
@@ -173,7 +174,7 @@ func (s *Server) registerPlaces() {
 			v, err := s.Service.UpdatePlace(ctx, mustPrincipal(ctx), in.Place, service.PlaceUpdate{
 				Name: b.Name, Description: b.Description, Slug: b.Slug, Visibility: b.Visibility,
 				IsNSFW: b.IsNSFW, Locale: b.Locale, IconURL: b.IconURL, BannerURL: b.BannerURL,
-				VotingEnabled: b.VotingEnabled,
+				VotingEnabled: b.VotingEnabled, Indexable: b.Indexable,
 			})
 			if err != nil {
 				return nil, err

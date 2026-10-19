@@ -1,0 +1,51 @@
+{
+  "id": "01a145d1-3160-708f-8be5-d832d1544745",
+  "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+  "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+  "slug": "when-can-i-rely-on-lifetime-elision",
+  "title": "When can I rely on lifetime elision?",
+  "author": {
+    "id": "0195faae-93e0-79c7-bfbc-ce60b9bd3c01",
+    "username": "gopher",
+    "display_name": "Gopher"
+  },
+  "created_at": "2026-10-16T17:45:00Z",
+  "updated_at": "2026-10-16T19:02:00Z",
+  "reply_count": 1,
+  "pinned": false,
+  "locked": false,
+  "archived": false,
+  "solved": false,
+  "tags": ["lifetimes"],
+  "posts": [
+    {
+      "id": "01a145d1-3160-7969-99ed-489b17410e7e",
+      "number": 1,
+      "parent_id": null,
+      "author": {
+        "id": "0195faae-93e0-79c7-bfbc-ce60b9bd3c01",
+        "username": "gopher",
+        "display_name": "Gopher"
+      },
+      "content": "When does the compiler infer lifetimes for me, and when do I have to write `<'a>`?",
+      "created_at": "2026-10-16T17:45:00Z",
+      "edited_at": null,
+      "is_solution": false
+    },
+    {
+      "id": "01a14617-b040-7b85-8d3b-f5316260521c",
+      "number": 2,
+      "parent_id": null,
+      "author": {
+        "id": "019505c2-b000-7fa1-8db2-667fbae6e2ce",
+        "username": "corro",
+        "display_name": "Corro the Unsafe"
+      },
+      "content": "Three rules: each elided input gets its own lifetime; with exactly one input lifetime, outputs get it; with `&self` or `&mut self`, outputs get the lifetime of `self`. Anything else needs annotations.",
+      "created_at": "2026-10-16T19:02:00Z",
+      "edited_at": null,
+      "is_solution": false
+    }
+  ],
+  "next_cursor": null
+}

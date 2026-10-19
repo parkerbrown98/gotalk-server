@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gotalk.sh/schemas/index/v1/board-topics-page.schema.json",
+  "title": "GET {index_url}/boards/{board_id}/topics",
+  "description": "Topic summaries for one indexable board, ordered by updated_at ascending then id.",
+  "type": "object",
+  "required": ["items", "next_cursor"],
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "#/$defs/topicSummary" } },
+    "next_cursor": {
+      "oneOf": [
+        { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/cursor" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "topicFields": {
+      "description": "The summary fields shared with GET /topics/{id}. author is required by topicSummary only.",
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "title",
+        "created_at",
+        "updated_at",
+        "reply_count",
+        "pinned",
+        "locked",
+        "archived",
+        "solved",
+        "tags"
+      ],
+      "properties": {
+        "id": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/id" },
+        "slug": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "author": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/author" },
+        "created_at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        "updated_at": { "$ref": "https://gotalk.sh/schemas/index/v1/common.schema.json#/$defs/timestamp" },
+        "reply_count": {
+          "description": "Indexable replies, not all replies.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "pinned": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "archived": { "type": "boolean" },
+        "solved": { "type": "boolean" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "topicSummary": {
+      "$ref": "#/$defs/topicFields",
+      "required": ["author"]
+    }
+  }
+}

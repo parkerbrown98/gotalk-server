@@ -1,0 +1,65 @@
+{
+  "id": "01a12f3c-8da0-7e05-b1b7-a7602d7cc6f2",
+  "place_id": "01955615-6e80-74e8-a3b2-8e848714ac07",
+  "board_id": "0195561a-ecc0-7155-ab48-3f36ad46fef4",
+  "slug": "read-a-file-line-by-line",
+  "title": "How do I read a file line by line?",
+  "author": {
+    "id": "019505c2-b000-7fa1-8db2-667fbae6e2ce",
+    "username": "corro",
+    "display_name": "Corro the Unsafe"
+  },
+  "created_at": "2026-10-12T08:31:00Z",
+  "updated_at": "2026-10-15T07:58:00Z",
+  "reply_count": 2,
+  "pinned": false,
+  "locked": false,
+  "archived": false,
+  "solved": true,
+  "tags": ["io"],
+  "posts": [
+    {
+      "id": "01a12f3c-8da0-7d47-8588-d5da766f686a",
+      "number": 1,
+      "parent_id": null,
+      "author": {
+        "id": "019505c2-b000-7fa1-8db2-667fbae6e2ce",
+        "username": "corro",
+        "display_name": "Corro the Unsafe"
+      },
+      "content": "What is the idiomatic way to read a text file line by line without loading all of it into memory?",
+      "created_at": "2026-10-12T08:31:00Z",
+      "edited_at": null,
+      "is_solution": false
+    },
+    {
+      "id": "01a12f5b-ae60-70b7-a33e-97e3451cda97",
+      "number": 2,
+      "parent_id": null,
+      "author": {
+        "id": "019792ae-83c0-793e-a9d2-510cbd597653",
+        "username": "ana.lima",
+        "display_name": "Ana Lima"
+      },
+      "content": "Wrap the file in a `BufReader` and use `lines()`:\n\n```rust\nuse std::fs::File;\nuse std::io::{self, BufRead, BufReader};\n\nfn main() -> io::Result<()> {\n    for line in BufReader::new(File::open(\"log.txt\")?).lines() {\n        println!(\"{}\", line?);\n    }\n    Ok(())\n}\n```",
+      "created_at": "2026-10-12T09:05:00Z",
+      "edited_at": null,
+      "is_solution": true
+    },
+    {
+      "id": "01a13e91-6b40-7104-b0c0-0e253bd4ec91",
+      "number": 3,
+      "parent_id": "01a12f5b-ae60-70b7-a33e-97e3451cda97",
+      "author": {
+        "id": "0194f481-44a0-7f90-ab3d-189d8506bb3a",
+        "username": "ferris",
+        "display_name": "Ferris"
+      },
+      "content": "Note that `lines()` strips the `\\n` (and a `\\r\\n`). Use `read_line` if you need the line endings.",
+      "created_at": "2026-10-15T07:58:00Z",
+      "edited_at": null,
+      "is_solution": false
+    }
+  ],
+  "next_cursor": null
+}

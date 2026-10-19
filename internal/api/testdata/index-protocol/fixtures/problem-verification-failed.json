@@ -1,0 +1,7 @@
+{
+  "type": "https://gotalk.sh/problems/verification_failed",
+  "title": "Unprocessable Content",
+  "status": 422,
+  "detail": "directory.listed is not true in https://forum.example/.well-known/gotalk-instance.",
+  "code": "verification_failed"
+}

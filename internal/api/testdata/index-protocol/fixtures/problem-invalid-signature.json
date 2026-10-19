@@ -1,0 +1,7 @@
+{
+  "type": "https://gotalk.sh/problems/invalid_signature",
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "The request signature does not verify.",
+  "code": "invalid_signature"
+}
