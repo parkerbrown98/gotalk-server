@@ -76,6 +76,8 @@ type Board struct {
 	LastPostAt       *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	Indexable        bool
+	InIndex          bool
 }
 
 type BoardOverwrite struct {
@@ -158,6 +160,29 @@ type EmailToken struct {
 	UsedAt    *time.Time
 }
 
+type IndexChange struct {
+	ObjectType string
+	ObjectID   uuid.UUID
+	Type       string
+	PlaceID    *uuid.UUID
+	BoardID    *uuid.UUID
+	TopicID    *uuid.UUID
+	UserID     *uuid.UUID
+	At         time.Time
+	Ord        time.Time
+	Seq        *int64
+}
+
+type InstanceAuditLog struct {
+	ID         uuid.UUID
+	ActorID    *uuid.UUID
+	Action     string
+	TargetType string
+	TargetID   *uuid.UUID
+	Metadata   []byte
+	CreatedAt  time.Time
+}
+
 type InstanceConfig struct {
 	Section   string
 	Settings  []byte
@@ -166,17 +191,22 @@ type InstanceConfig struct {
 }
 
 type InstanceSetting struct {
-	ID               int16
-	Name             string
-	Description      string
-	IconUrl          *string
-	RegistrationMode string
-	SetupToken       *string
-	SetupCompletedAt *time.Time
-	JwtSecret        []byte
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	ConfigRevision   int64
+	ID                   int16
+	Name                 string
+	Description          string
+	IconUrl              *string
+	RegistrationMode     string
+	SetupToken           *string
+	SetupCompletedAt     *time.Time
+	JwtSecret            []byte
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ConfigRevision       int64
+	DirectorySigningKey  []byte
+	DirectoryPreviousKey *string
+	IndexFeedSeq         int64
+	IndexFeedPrunedSeq   int64
+	IndexLastPingAt      *time.Time
 }
 
 type Invite struct {
@@ -294,6 +324,8 @@ type Place struct {
 	UpdatedAt     time.Time
 	DeletedAt     *time.Time
 	VotingEnabled bool
+	Indexable     bool
+	InIndex       bool
 }
 
 type PlaceBan struct {
@@ -451,6 +483,7 @@ type Topic struct {
 	Score          int32
 	HotRank        float64
 	Controversy    float64
+	IndexUpdatedAt time.Time
 }
 
 type TopicRead struct {
@@ -486,20 +519,21 @@ type Upload struct {
 }
 
 type User struct {
-	ID              uuid.UUID
-	Username        string
-	Email           string
-	PasswordHash    string
-	DisplayName     string
-	Bio             string
-	Pronouns        string
-	AvatarUrl       *string
-	IsInstanceAdmin bool
-	EmailVerifiedAt *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       *time.Time
-	IsBot           bool
+	ID               uuid.UUID
+	Username         string
+	Email            string
+	PasswordHash     string
+	DisplayName      string
+	Bio              string
+	Pronouns         string
+	AvatarUrl        *string
+	IsInstanceAdmin  bool
+	EmailVerifiedAt  *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        *time.Time
+	IsBot            bool
+	ExcludeFromIndex bool
 }
 
 type VoiceSession struct {

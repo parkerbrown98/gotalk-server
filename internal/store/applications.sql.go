@@ -100,7 +100,7 @@ func (q *Queries) CreateApplicationCommand(ctx context.Context, arg CreateApplic
 const createBotUser = `-- name: CreateBotUser :one
 INSERT INTO users (id, username, email, password_hash, display_name, is_bot)
 VALUES ($1, $2, $3, '', $4, true)
-RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot
+RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot, exclude_from_index
 `
 
 type CreateBotUserParams struct {
@@ -133,6 +133,7 @@ func (q *Queries) CreateBotUser(ctx context.Context, arg CreateBotUserParams) (U
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsBot,
+		&i.ExcludeFromIndex,
 	)
 	return i, err
 }

@@ -74,7 +74,7 @@ func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) 
 }
 
 const getAPITokenUser = `-- name: GetAPITokenUser :one
-SELECT t.id, t.user_id, t.application_id, t.kind, t.name, t.token_hash, t.token_hint, t.scopes, t.created_at, t.last_used_at, t.expires_at, t.revoked_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot
+SELECT t.id, t.user_id, t.application_id, t.kind, t.name, t.token_hash, t.token_hint, t.scopes, t.created_at, t.last_used_at, t.expires_at, t.revoked_at, u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot, u.exclude_from_index
 FROM api_tokens t
 JOIN users u ON u.id = t.user_id
 WHERE t.token_hash = $1
@@ -118,6 +118,7 @@ func (q *Queries) GetAPITokenUser(ctx context.Context, tokenHash []byte) (GetAPI
 		&i.User.UpdatedAt,
 		&i.User.DeletedAt,
 		&i.User.IsBot,
+		&i.User.ExcludeFromIndex,
 	)
 	return i, err
 }

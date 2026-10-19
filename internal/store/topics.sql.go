@@ -52,7 +52,7 @@ func (q *Queries) ClaimPostNumber(ctx context.Context, arg ClaimPostNumberParams
 const createTopic = `-- name: CreateTopic :one
 INSERT INTO topics (id, place_id, board_id, author_id, title, slug, tags, last_poster_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $4)
-RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy
+RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at
 `
 
 type CreateTopicParams struct {
@@ -101,12 +101,13 @@ func (q *Queries) CreateTopic(ctx context.Context, arg CreateTopicParams) (Topic
 		&i.Score,
 		&i.HotRank,
 		&i.Controversy,
+		&i.IndexUpdatedAt,
 	)
 	return i, err
 }
 
 const getTopic = `-- name: GetTopic :one
-SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy FROM topics WHERE id = $1
+SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at FROM topics WHERE id = $1
 `
 
 func (q *Queries) GetTopic(ctx context.Context, id uuid.UUID) (Topic, error) {
@@ -137,12 +138,13 @@ func (q *Queries) GetTopic(ctx context.Context, id uuid.UUID) (Topic, error) {
 		&i.Score,
 		&i.HotRank,
 		&i.Controversy,
+		&i.IndexUpdatedAt,
 	)
 	return i, err
 }
 
 const getTopicForUpdate = `-- name: GetTopicForUpdate :one
-SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy FROM topics WHERE id = $1 FOR UPDATE
+SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at FROM topics WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetTopicForUpdate(ctx context.Context, id uuid.UUID) (Topic, error) {
@@ -173,12 +175,13 @@ func (q *Queries) GetTopicForUpdate(ctx context.Context, id uuid.UUID) (Topic, e
 		&i.Score,
 		&i.HotRank,
 		&i.Controversy,
+		&i.IndexUpdatedAt,
 	)
 	return i, err
 }
 
 const listBoardTopics = `-- name: ListBoardTopics :many
-SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy FROM topics
+SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at FROM topics
 WHERE board_id = $1
   AND deleted_at IS NULL
   AND ($2::boolean OR NOT is_archived)
@@ -236,6 +239,7 @@ func (q *Queries) ListBoardTopics(ctx context.Context, arg ListBoardTopicsParams
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -299,7 +303,7 @@ func (q *Queries) ListPlaceTags(ctx context.Context, arg ListPlaceTagsParams) ([
 }
 
 const listPlaceTopics = `-- name: ListPlaceTopics :many
-SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy FROM topics
+SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at FROM topics
 WHERE place_id = $1
   AND board_id = ANY($2::uuid[])
   AND deleted_at IS NULL
@@ -358,6 +362,7 @@ func (q *Queries) ListPlaceTopics(ctx context.Context, arg ListPlaceTopicsParams
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -412,7 +417,7 @@ func (q *Queries) ListTopicReads(ctx context.Context, arg ListTopicReadsParams) 
 }
 
 const listTopicsByIDs = `-- name: ListTopicsByIDs :many
-SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy FROM topics WHERE id = ANY($1::uuid[])
+SELECT id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at FROM topics WHERE id = ANY($1::uuid[])
 `
 
 func (q *Queries) ListTopicsByIDs(ctx context.Context, ids []uuid.UUID) ([]Topic, error) {
@@ -449,6 +454,7 @@ func (q *Queries) ListTopicsByIDs(ctx context.Context, ids []uuid.UUID) ([]Topic
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -518,7 +524,7 @@ func (q *Queries) MoveTopicPosts(ctx context.Context, arg MoveTopicPostsParams) 
 const setTopicSolution = `-- name: SetTopicSolution :one
 UPDATE topics SET solution_post_id = $1::uuid, updated_at = now()
 WHERE id = $2
-RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy
+RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at
 `
 
 type SetTopicSolutionParams struct {
@@ -554,6 +560,7 @@ func (q *Queries) SetTopicSolution(ctx context.Context, arg SetTopicSolutionPara
 		&i.Score,
 		&i.HotRank,
 		&i.Controversy,
+		&i.IndexUpdatedAt,
 	)
 	return i, err
 }
@@ -583,7 +590,7 @@ SET title       = COALESCE($1::text, title),
     board_id    = COALESCE($7::uuid, board_id),
     updated_at  = now()
 WHERE id = $8
-RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy
+RETURNING id, place_id, board_id, author_id, title, slug, tags, is_pinned, is_locked, is_archived, solution_post_id, post_count, last_post_number, last_post_at, last_poster_id, created_at, updated_at, deleted_at, deleted_by, upvotes, downvotes, score, hot_rank, controversy, index_updated_at
 `
 
 type UpdateTopicParams struct {
@@ -634,6 +641,7 @@ func (q *Queries) UpdateTopic(ctx context.Context, arg UpdateTopicParams) (Topic
 		&i.Score,
 		&i.HotRank,
 		&i.Controversy,
+		&i.IndexUpdatedAt,
 	)
 	return i, err
 }

@@ -63,7 +63,7 @@ INSERT INTO boards (id, place_id, parent_id, kind, slug, name, description, posi
                     reply_mode, solutions_enabled, is_nsfw)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
         $9, $10, $11)
-RETURNING id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at
+RETURNING id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at, indexable, in_index
 `
 
 type CreateBoardParams struct {
@@ -113,6 +113,8 @@ func (q *Queries) CreateBoard(ctx context.Context, arg CreateBoardParams) (Board
 		&i.LastPostAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Indexable,
+		&i.InIndex,
 	)
 	return i, err
 }
@@ -144,7 +146,7 @@ func (q *Queries) DeleteBoardOverwrite(ctx context.Context, arg DeleteBoardOverw
 }
 
 const getBoard = `-- name: GetBoard :one
-SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at FROM boards WHERE id = $1
+SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at, indexable, in_index FROM boards WHERE id = $1
 `
 
 func (q *Queries) GetBoard(ctx context.Context, id uuid.UUID) (Board, error) {
@@ -168,6 +170,8 @@ func (q *Queries) GetBoard(ctx context.Context, id uuid.UUID) (Board, error) {
 		&i.LastPostAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Indexable,
+		&i.InIndex,
 	)
 	return i, err
 }
@@ -203,7 +207,7 @@ func (q *Queries) ListBoardOverwrites(ctx context.Context, placeID uuid.UUID) ([
 }
 
 const listBoards = `-- name: ListBoards :many
-SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at FROM boards WHERE place_id = $1 ORDER BY position, created_at
+SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at, indexable, in_index FROM boards WHERE place_id = $1 ORDER BY position, created_at
 `
 
 func (q *Queries) ListBoards(ctx context.Context, placeID uuid.UUID) ([]Board, error) {
@@ -233,6 +237,8 @@ func (q *Queries) ListBoards(ctx context.Context, placeID uuid.UUID) ([]Board, e
 			&i.LastPostAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Indexable,
+			&i.InIndex,
 		); err != nil {
 			return nil, err
 		}
@@ -285,10 +291,11 @@ SET name              = COALESCE($1::text, name),
     reply_mode        = COALESCE($5::text, reply_mode),
     solutions_enabled = COALESCE($6::boolean, solutions_enabled),
     is_nsfw           = COALESCE($7::boolean, is_nsfw),
-    parent_id         = CASE WHEN $8::boolean THEN $9::uuid ELSE parent_id END,
+    indexable         = COALESCE($8::boolean, indexable),
+    parent_id         = CASE WHEN $9::boolean THEN $10::uuid ELSE parent_id END,
     updated_at        = now()
-WHERE id = $10
-RETURNING id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at
+WHERE id = $11
+RETURNING id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at, indexable, in_index
 `
 
 type UpdateBoardParams struct {
@@ -299,6 +306,7 @@ type UpdateBoardParams struct {
 	ReplyMode        *string
 	SolutionsEnabled *bool
 	IsNsfw           *bool
+	Indexable        *bool
 	SetParent        bool
 	ParentID         *uuid.UUID
 	ID               uuid.UUID
@@ -315,6 +323,7 @@ func (q *Queries) UpdateBoard(ctx context.Context, arg UpdateBoardParams) (Board
 		arg.ReplyMode,
 		arg.SolutionsEnabled,
 		arg.IsNsfw,
+		arg.Indexable,
 		arg.SetParent,
 		arg.ParentID,
 		arg.ID,
@@ -338,6 +347,8 @@ func (q *Queries) UpdateBoard(ctx context.Context, arg UpdateBoardParams) (Board
 		&i.LastPostAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Indexable,
+		&i.InIndex,
 	)
 	return i, err
 }

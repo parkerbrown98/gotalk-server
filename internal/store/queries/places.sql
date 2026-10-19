@@ -45,6 +45,7 @@ SET name        = COALESCE(sqlc.narg('name')::text, name),
     banner_url  = CASE WHEN sqlc.narg('banner_url')::text IS NULL THEN banner_url
                        ELSE NULLIF(sqlc.narg('banner_url')::text, '') END,
     voting_enabled = COALESCE(sqlc.narg('voting_enabled')::boolean, voting_enabled),
+    indexable   = COALESCE(sqlc.narg('indexable')::boolean, indexable),
     updated_at  = now()
 WHERE id = @id AND deleted_at IS NULL
 RETURNING *;

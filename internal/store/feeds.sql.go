@@ -93,7 +93,7 @@ func (q *Queries) ListBoardOverwritesForPlaces(ctx context.Context, placeIds []u
 }
 
 const listBoardsForPlaces = `-- name: ListBoardsForPlaces :many
-SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at FROM boards WHERE place_id = ANY($1::uuid[]) ORDER BY place_id, position, created_at
+SELECT id, place_id, parent_id, kind, slug, name, description, position, reply_mode, solutions_enabled, is_nsfw, is_public, topic_count, post_count, last_post_at, created_at, updated_at, indexable, in_index FROM boards WHERE place_id = ANY($1::uuid[]) ORDER BY place_id, position, created_at
 `
 
 func (q *Queries) ListBoardsForPlaces(ctx context.Context, placeIds []uuid.UUID) ([]Board, error) {
@@ -123,6 +123,8 @@ func (q *Queries) ListBoardsForPlaces(ctx context.Context, placeIds []uuid.UUID)
 			&i.LastPostAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Indexable,
+			&i.InIndex,
 		); err != nil {
 			return nil, err
 		}
@@ -135,7 +137,7 @@ func (q *Queries) ListBoardsForPlaces(ctx context.Context, placeIds []uuid.UUID)
 }
 
 const listFeedActive = `-- name: ListFeedActive :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -227,6 +229,7 @@ func (q *Queries) ListFeedActive(ctx context.Context, arg ListFeedActiveParams) 
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -239,7 +242,7 @@ func (q *Queries) ListFeedActive(ctx context.Context, arg ListFeedActiveParams) 
 }
 
 const listFeedControversial = `-- name: ListFeedControversial :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -332,6 +335,7 @@ func (q *Queries) ListFeedControversial(ctx context.Context, arg ListFeedControv
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -344,7 +348,7 @@ func (q *Queries) ListFeedControversial(ctx context.Context, arg ListFeedControv
 }
 
 const listFeedHot = `-- name: ListFeedHot :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -436,6 +440,7 @@ func (q *Queries) ListFeedHot(ctx context.Context, arg ListFeedHotParams) ([]Top
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -448,7 +453,7 @@ func (q *Queries) ListFeedHot(ctx context.Context, arg ListFeedHotParams) ([]Top
 }
 
 const listFeedNew = `-- name: ListFeedNew :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -540,6 +545,7 @@ func (q *Queries) ListFeedNew(ctx context.Context, arg ListFeedNewParams) ([]Top
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -552,7 +558,7 @@ func (q *Queries) ListFeedNew(ctx context.Context, arg ListFeedNewParams) ([]Top
 }
 
 const listFeedPinned = `-- name: ListFeedPinned :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -639,6 +645,7 @@ func (q *Queries) ListFeedPinned(ctx context.Context, arg ListFeedPinnedParams) 
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -677,7 +684,7 @@ WITH c AS (
             t.board_id = ANY($15::uuid[]))
       AND t.created_at <= $4::timestamptz
 )
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, c.rank
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at, c.rank
 FROM c
 JOIN topics t ON t.id = c.id
 WHERE $1::uuid IS NULL
@@ -761,6 +768,7 @@ func (q *Queries) ListFeedRising(ctx context.Context, arg ListFeedRisingParams) 
 			&i.Topic.Score,
 			&i.Topic.HotRank,
 			&i.Topic.Controversy,
+			&i.Topic.IndexUpdatedAt,
 			&i.Rank,
 		); err != nil {
 			return nil, err
@@ -774,7 +782,7 @@ func (q *Queries) ListFeedRising(ctx context.Context, arg ListFeedRisingParams) 
 }
 
 const listFeedTop = `-- name: ListFeedTop :many
-SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy FROM topics t
+SELECT t.id, t.place_id, t.board_id, t.author_id, t.title, t.slug, t.tags, t.is_pinned, t.is_locked, t.is_archived, t.solution_post_id, t.post_count, t.last_post_number, t.last_post_at, t.last_poster_id, t.created_at, t.updated_at, t.deleted_at, t.deleted_by, t.upvotes, t.downvotes, t.score, t.hot_rank, t.controversy, t.index_updated_at FROM topics t
 WHERE t.board_id = ANY($1::uuid[])
   AND t.deleted_at IS NULL
   AND ($2::uuid IS NULL OR t.place_id = $2::uuid)
@@ -866,6 +874,7 @@ func (q *Queries) ListFeedTop(ctx context.Context, arg ListFeedTopParams) ([]Top
 			&i.Score,
 			&i.HotRank,
 			&i.Controversy,
+			&i.IndexUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -991,7 +1000,7 @@ func (q *Queries) ListOpeningPosts(ctx context.Context, topicIds []uuid.UUID) ([
 }
 
 const listPublicFeedBoards = `-- name: ListPublicFeedBoards :many
-SELECT b.id, b.place_id, b.parent_id, b.kind, b.slug, b.name, b.description, b.position, b.reply_mode, b.solutions_enabled, b.is_nsfw, b.is_public, b.topic_count, b.post_count, b.last_post_at, b.created_at, b.updated_at,
+SELECT b.id, b.place_id, b.parent_id, b.kind, b.slug, b.name, b.description, b.position, b.reply_mode, b.solutions_enabled, b.is_nsfw, b.is_public, b.topic_count, b.post_count, b.last_post_at, b.created_at, b.updated_at, b.indexable, b.in_index,
        (b.is_nsfw OR pl.is_nsfw OR COALESCE(p1.is_nsfw, false) OR COALESCE(p2.is_nsfw, false))::boolean AS nsfw
 FROM boards b
 JOIN places pl ON pl.id = b.place_id
@@ -1034,6 +1043,8 @@ func (q *Queries) ListPublicFeedBoards(ctx context.Context) ([]ListPublicFeedBoa
 			&i.Board.LastPostAt,
 			&i.Board.CreatedAt,
 			&i.Board.UpdatedAt,
+			&i.Board.Indexable,
+			&i.Board.InIndex,
 			&i.Nsfw,
 		); err != nil {
 			return nil, err

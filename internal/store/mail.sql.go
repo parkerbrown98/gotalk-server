@@ -235,7 +235,7 @@ func (q *Queries) FinishMail(ctx context.Context, arg FinishMailParams) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL
+SELECT id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot, exclude_from_index FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -256,6 +256,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsBot,
+		&i.ExcludeFromIndex,
 	)
 	return i, err
 }
@@ -336,7 +337,7 @@ func (q *Queries) ListMailOutbox(ctx context.Context, lim int32) ([]MailOutbox, 
 const markEmailVerified = `-- name: MarkEmailVerified :one
 UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
 WHERE id = $1 AND lower(email) = lower($2) AND deleted_at IS NULL
-RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot
+RETURNING id, username, email, password_hash, display_name, bio, pronouns, avatar_url, is_instance_admin, email_verified_at, created_at, updated_at, deleted_at, is_bot, exclude_from_index
 `
 
 type MarkEmailVerifiedParams struct {
@@ -363,6 +364,7 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, arg MarkEmailVerifiedPa
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.IsBot,
+		&i.ExcludeFromIndex,
 	)
 	return i, err
 }

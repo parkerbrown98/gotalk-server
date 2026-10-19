@@ -52,7 +52,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 }
 
 const getActiveSessionUser = `-- name: GetActiveSessionUser :one
-SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot
+SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio, u.pronouns, u.avatar_url, u.is_instance_admin, u.email_verified_at, u.created_at, u.updated_at, u.deleted_at, u.is_bot, u.exclude_from_index
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.id = $1
@@ -83,6 +83,7 @@ func (q *Queries) GetActiveSessionUser(ctx context.Context, id uuid.UUID) (GetAc
 		&i.User.UpdatedAt,
 		&i.User.DeletedAt,
 		&i.User.IsBot,
+		&i.User.ExcludeFromIndex,
 	)
 	return i, err
 }

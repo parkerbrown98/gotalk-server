@@ -29,6 +29,7 @@ SET name              = COALESCE(sqlc.narg('name')::text, name),
     reply_mode        = COALESCE(sqlc.narg('reply_mode')::text, reply_mode),
     solutions_enabled = COALESCE(sqlc.narg('solutions_enabled')::boolean, solutions_enabled),
     is_nsfw           = COALESCE(sqlc.narg('is_nsfw')::boolean, is_nsfw),
+    indexable         = COALESCE(sqlc.narg('indexable')::boolean, indexable),
     parent_id         = CASE WHEN @set_parent::boolean THEN sqlc.narg('parent_id')::uuid ELSE parent_id END,
     updated_at        = now()
 WHERE id = @id
