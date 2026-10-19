@@ -408,8 +408,9 @@ Deferred from sections 3, 4, 7 and 8:
 - **Scheduled publishing, email digests, and push notifications:** need the background job runner and
   mail/push providers (Phase 7). Notifications are fanned out synchronously; since Phase 3 they are
   also pushed in real time over the gateway.
-- **SEO rendering** (OpenGraph/JSON-LD pages, sitemaps): belongs to the web client. The API already
-  provides the readable slugs and anonymous read access it needs.
+- **SEO rendering** (OpenGraph/JSON-LD pages, sitemaps): belongs to the public index at
+  [gotalk.sh](https://github.com/parkerbrown98/gotalk-platform), not the web client (which is
+  `noindex`). Instances opt in and serve the [index endpoints and change feed](api-index.md).
 - **Optional Meilisearch backend:** search sits behind a single query today, so Meilisearch can be
   added later without changing the API.
 - **Automated moderation** (keyword filters, spam heuristics), appeals, trust levels, and

@@ -15,7 +15,7 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 
 | Area | Endpoints |
 |---|---|
-| Instance | `GET/PATCH /instance`, `PUT/DELETE /instance/icon`, `GET/PATCH /instance/config`, `DELETE /instance/config/{section}`, `POST /instance/config/test`, `GET /instance/checks`, `GET /permissions`, `GET /setup/status`, `POST /setup`, `POST /setup/test` |
+| Instance | `GET/PATCH /instance`, `PUT/DELETE /instance/icon`, `GET/PATCH /instance/config`, `DELETE /instance/config/{section}`, `POST /instance/config/test`, `GET /instance/checks`, `GET /instance/directory`, `POST /instance/directory/keys/rotate`, `DELETE /instance/directory/keys/previous`, `GET /instance/audit-log`, `GET /permissions`, `GET /setup/status`, `POST /setup`, `POST /setup/test` |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/password-reset`, `/auth/password-reset/confirm`, `/auth/verify-email` |
 | Users | `GET/PATCH/DELETE /users/@me`, `PUT/DELETE /users/@me/avatar`, `POST /users/@me/password`, `POST /users/@me/email/verification`, `GET /users/@me/sessions`, `DELETE /users/@me/sessions/{id}`, `GET /users/@me/places`, `GET /users/{username}` |
 | Places | `GET/POST /places`, `GET/PATCH/DELETE /places/{place}`, `PUT/DELETE /places/{place}/icon`, `/banner`, `POST /places/{place}/join`, `/leave`, `/transfer`, `GET /places/{place}/permissions/@me` |
@@ -38,6 +38,7 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 | Voice | `POST /channels/{channelID}/voice`, `GET /channels/{channelID}/voice/sessions`, `GET/PATCH/DELETE /users/@me/voice`, `POST /users/@me/voice/telemetry`, `GET /places/{place}/voice-states`, `GET/PATCH/DELETE /places/{place}/members/{userID}/voice`, `POST /voice/webhook` (LiveKit only) |
 | Developer | `GET/POST /users/@me/tokens`, `DELETE /users/@me/tokens/{tokenID}`, `GET /rate-limits`, `GET/POST /applications`, `GET/PATCH/DELETE /applications/{applicationID}`, `POST /applications/{applicationID}/bot/token`, `GET/PUT /applications/{applicationID}/commands`, `POST /places/{place}/bots`, `GET /channels/{channelID}/commands`, `POST /channels/{channelID}/interactions` |
 | Webhooks | `GET/POST /places/{place}/webhooks`, `GET/PATCH/DELETE /webhooks/{webhookID}`, `POST /webhooks/{webhookID}/secret`, `POST /webhooks/{webhookID}/ping`, `GET /webhooks/{webhookID}/deliveries`, `POST /webhooks/{webhookID}/deliveries/{deliveryID}/redeliver` |
+| Public index | `GET /index/places`, `GET /index/boards/{boardID}/topics`, `GET /index/topics/{topicID}`, `GET /index/changes`, and `/.well-known/gotalk-instance` (outside `/api/v1`) |
 | Policies | `GET /policies`, `GET/POST /policies/{kind}`, `GET /policies/{kind}/versions`, `GET /policies/{kind}/versions/{version}`, `GET/POST /users/@me/consents`, `GET /users/@me/consents/history`, `GET /transparency`, `GET /places/{place}/transparency` |
 
 ## Where to read more
@@ -51,3 +52,4 @@ and response schemas, is the OpenAPI document at `/api/v1/openapi.json` (browse 
 | Voice | [Voice](api-voice.md) |
 | Moderation, Policies | [Moderation and policies](api-moderation.md) |
 | Developer, Webhooks | [Developers](api-developers.md) |
+| Public index | [Public index](api-index.md) |

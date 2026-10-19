@@ -8,6 +8,7 @@
 - [Roles and permissions](#roles-and-permissions)
 - [Boards](#boards)
 - [Reading without an account](#reading-without-an-account)
+- [Search engines and the public directory](#search-engines-and-the-public-directory)
 
 ## Places
 
@@ -40,3 +41,12 @@ roles, so a role allow beats an `@everyone` deny. This covers staff-only boards
 Anyone, signed in or not, can read the boards of a
 `public` place that `@everyone` can see. `invite_only` and `private` places are
 members-only. Only members can post, react, report users, or subscribe.
+
+## Search engines and the public directory
+
+When the instance is listed in the public directory, place owners (`MANAGE_PLACE`) can set
+`indexable: true` on a public, non-NSFW place, and its boards that signed-out visitors can read
+appear in search engines and the directory. `MANAGE_BOARDS` can keep a board and its sub-boards
+out with `indexable: false`. Places and boards report `indexed` and an `index_notice` to show
+members, and each person can exclude their own posts with `exclude_from_index` on
+`PATCH /users/@me`. See [Public index](api-index.md).

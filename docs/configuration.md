@@ -20,6 +20,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 - [Storage](#storage)
 - [Uploads and link previews](#uploads-and-link-previews)
 - [Email](#email)
+- [Public directory](#public-directory)
 - [Value formats](#value-formats)
 
 ## Server
@@ -61,6 +62,7 @@ are `GOTALK_` + section + `_` + key, upper-cased: `server.public_url` becomes
 | `ratelimit.auth` | `10-M` | Login, registration, refresh, setup, and password endpoints |
 | `ratelimit.content` | `30-M` | Creating topics, replies, and reports; marking feeds read in bulk |
 | `ratelimit.chat` | `120-M` | Sending chat messages, reacting to them, typing indicators, and starting threads |
+| `ratelimit.index` | `600-M` | The [public index endpoints](api-index.md#index-endpoints), always per IP and never counted against user tiers |
 
 ## Logging
 
@@ -137,6 +139,22 @@ See [File storage and email](storage-and-email.md#email) for what each driver ne
 | `mail.smtp_username` / `smtp_password` | | SMTP credentials |
 | `mail.api_key` / `api_url` / `domain` | | API provider key, base URL override, Mailgun domain |
 | `mail.region` / `access_key_id` / `secret_access_key` | | Amazon SES |
+
+## Public directory
+
+Lists the instance in the public Gotalk directory. See [Public index](api-index.md). Setting `directory.listed`
+here makes the whole section read-only in the browser settings and the settings API, like the provider sections.
+
+| Key | Default | Description |
+|---|---|---|
+| `directory.listed` | `false` | Advertise the instance in `/.well-known/gotalk-instance` and serve the index endpoints. Place owners still opt in each place |
+| `directory.contact_email` | | Shared with the index for abuse reports and crawl problems only |
+| `directory.platform_url` | `https://gotalk.sh` | Index that receives pings |
+| `directory.pings_disabled` | `false` | Stop pinging the index after changes; it then reads the feed on its own schedule |
+| `directory.signing_key` | *(generated)* | Ed25519 seed (32 bytes, unpadded base64url) that signs pings. When empty, a key is generated and stored in the database |
+
+Listing needs `server.public_url` set to the instance's public `https://` address, so the advertised index URL and
+the ping origin are stable.
 
 ## Value formats
 

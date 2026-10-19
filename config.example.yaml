@@ -33,6 +33,7 @@ ratelimit:
   auth: 10-M                   # login, register, refresh, setup, password changes
   content: 30-M                # creating topics, replies and reports
   chat: 120-M                  # sending chat messages, reactions, typing, starting threads
+  index: 600-M                 # public index endpoints (/api/v1/index), always per IP
 
 log:
   level: info                  # debug, info, warn, error
@@ -100,3 +101,13 @@ uploads:
 embeds:
   enabled: true
   # allow_private_networks: false   # also fetch loopback/private addresses (development only)
+
+# Listing in the public Gotalk directory (gotalk.sh/explore). Off by default; place owners
+# still opt in each place. Setting directory.listed here makes the section read-only in the
+# browser settings. See docs/api-index.md.
+# directory:
+#   listed: true
+#   contact_email: ops@forum.example   # for abuse reports and crawl problems
+#   platform_url: https://gotalk.sh    # where pings go
+#   pings_disabled: false
+#   signing_key: ""                    # Ed25519 seed, unpadded base64url; generated when empty
