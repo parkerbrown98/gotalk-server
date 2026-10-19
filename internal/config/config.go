@@ -10,8 +10,10 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	netmail "net/mail"
 	"net/netip"
 	"net/url"
 	"os"
@@ -44,6 +46,7 @@ type Config struct {
 	Mail      mail.Settings    `koanf:"mail"`
 	Uploads   Uploads          `koanf:"uploads"`
 	Embeds    Embeds           `koanf:"embeds"`
+	Directory Directory        `koanf:"directory"`
 
 	// explicit holds the keys set by the config file or the environment (as opposed to
 	// built-in defaults).
@@ -77,6 +80,25 @@ type Embeds struct {
 	// AllowPrivateNetworks lets previews fetch loopback, private and link-local addresses. Leave it
 	// off in production: it lets users make the server request internal services.
 	AllowPrivateNetworks bool `koanf:"allow_private_networks"`
+}
+
+// Directory controls listing in the public index at gotalk.sh (docs/api-index.md). Like the
+// provider sections, it can also be managed through the instance settings API unless
+// directory.listed is set here.
+type Directory struct {
+	// Listed advertises the instance in /.well-known/gotalk-instance and serves the index
+	// endpoints. Place owners still opt in each place.
+	Listed bool `koanf:"listed"`
+	// ContactEmail is shared with the index for abuse reports and crawl problems.
+	ContactEmail string `koanf:"contact_email"`
+	// PlatformURL is where pings are sent (default https://gotalk.sh).
+	PlatformURL string `koanf:"platform_url"`
+	// SigningKey is an Ed25519 seed (32 bytes, unpadded base64url) for signing pings. When
+	// empty the instance generates one and stores it in the database.
+	SigningKey string `koanf:"signing_key"`
+	// PingsDisabled stops telling the index about new changes right away; it then picks
+	// them up on its next scheduled read.
+	PingsDisabled bool `koanf:"pings_disabled"`
 }
 
 type Server struct {
@@ -137,11 +159,13 @@ type RateLimit struct {
 	Content string `koanf:"content"`
 	// Chat limits sending messages, reacting and typing indicators.
 	Chat string `koanf:"chat"`
+	// Index limits the public index endpoints, per IP, separately from the user tiers.
+	Index string `koanf:"index"`
 }
 
 // Tiers maps rate limit tier names to their configured rates.
 func (r RateLimit) Tiers() map[string]string {
-	return map[string]string{"default": r.Default, "auth": r.Auth, "content": r.Content, "chat": r.Chat}
+	return map[string]string{"default": r.Default, "auth": r.Auth, "content": r.Content, "chat": r.Chat, "index": r.Index}
 }
 
 type Log struct {
@@ -228,6 +252,7 @@ func defaults() map[string]any {
 		"ratelimit.auth":              "10-M",
 		"ratelimit.content":           "30-M",
 		"ratelimit.chat":              "120-M",
+		"ratelimit.index":             "600-M",
 		"log.level":                   "info",
 		"log.format":                  "json",
 		"setup.instance_name":         "Gotalk",
@@ -241,6 +266,7 @@ func defaults() map[string]any {
 		"storage.local_path":          "data",
 		"uploads.max_size":            8 << 20,
 		"embeds.enabled":              true,
+		"directory.platform_url":      "https://gotalk.sh",
 	}
 }
 
@@ -432,6 +458,9 @@ func (c *Config) Validate() error {
 	if c.Webhooks.DeliveryRetention < time.Hour {
 		add("webhooks.delivery_retention must be at least 1h")
 	}
+	if err := ValidateDirectory(c.Directory); err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration:\n  %w", errors.Join(errs...))
@@ -481,6 +510,25 @@ func ValidateCORS(origins []string, allowCredentials bool) error {
 		if err != nil || u.Scheme == "" || u.Host == "" || (u.Path != "" && u.Path != "/") ||
 			u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(o, "/") {
 			errs = append(errs, fmt.Errorf("server.cors_allowed_origins entry %q must be an origin like https://app.example.com or tauri://localhost (scheme and host, no path or trailing slash)", o))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateDirectory checks the directory listing settings.
+func ValidateDirectory(d Directory) error {
+	var errs []error
+	if u, err := url.Parse(d.PlatformURL); d.PlatformURL != "" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
+		errs = append(errs, fmt.Errorf("directory.platform_url must be an absolute http(s) URL, got %q", d.PlatformURL))
+	}
+	if d.ContactEmail != "" {
+		if a, err := netmail.ParseAddress(d.ContactEmail); err != nil || a.Address != d.ContactEmail {
+			errs = append(errs, fmt.Errorf("directory.contact_email must be a plain email address"))
+		}
+	}
+	if d.SigningKey != "" {
+		if seed, err := base64.RawURLEncoding.DecodeString(d.SigningKey); err != nil || len(seed) != 32 {
+			errs = append(errs, errors.New("directory.signing_key must be a 32-byte Ed25519 seed in unpadded base64url"))
 		}
 	}
 	return errors.Join(errs...)

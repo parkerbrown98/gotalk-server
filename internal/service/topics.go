@@ -604,6 +604,9 @@ func (s *Service) CreateTopic(ctx context.Context, p *Principal, boardID uuid.UU
 		if err := s.queueForumWebhook(ctx, q, f, WebhookTopicCreate, topic, post); err != nil {
 			return err
 		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
+			return err
+		}
 
 		if tv, err = s.topicView(ctx, q, p, topic); err != nil {
 			return err
@@ -714,6 +717,13 @@ func (s *Service) UpdateTopic(ctx context.Context, p *Principal, topicID uuid.UU
 				return err
 			}
 		}
+		var from *uuid.UUID
+		if moved {
+			from = &topic.BoardID
+		}
+		if err := s.indexTopic(ctx, q, topic.ID, from); err != nil {
+			return err
+		}
 		if modFields || !author {
 			meta := map[string]any{"title": updated.Title}
 			setIf(meta, "is_pinned", in.IsPinned)
@@ -766,6 +776,9 @@ func (s *Service) DeleteTopic(ctx context.Context, p *Principal, topicID uuid.UU
 			return err
 		}
 		if err := q.AdjustBoardCounts(ctx, store.AdjustBoardCountsParams{ID: topic.BoardID, Topics: -1, Posts: -topic.PostCount}); err != nil {
+			return err
+		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
 			return err
 		}
 		if author {
@@ -887,6 +900,9 @@ func (s *Service) CreatePost(ctx context.Context, p *Principal, topicID uuid.UUI
 		if err := s.queueForumWebhook(ctx, q, f, WebhookPostCreate, topic, post); err != nil {
 			return err
 		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
+			return err
+		}
 		view, err = s.postView(ctx, q, p, f, post)
 		return err
 	})
@@ -954,6 +970,9 @@ func (s *Service) EditPost(ctx context.Context, p *Principal, postID uuid.UUID, 
 		if err := s.indexPost(ctx, q, topic, updated); err != nil {
 			return err
 		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
+			return err
+		}
 		// Only newly added mentions notify.
 		added, err := s.mentionedUserIDs(ctx, q, content, mentions(post.Content))
 		if err != nil {
@@ -1019,6 +1038,9 @@ func (s *Service) DeletePost(ctx context.Context, p *Principal, postID uuid.UUID
 			if _, err := q.SetTopicSolution(ctx, store.SetTopicSolutionParams{ID: topic.ID}); err != nil {
 				return err
 			}
+		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
+			return err
 		}
 		if author {
 			return nil
@@ -1102,6 +1124,9 @@ func (s *Service) SetSolution(ctx context.Context, p *Principal, topicID uuid.UU
 		}
 		updated, err := q.SetTopicSolution(ctx, store.SetTopicSolutionParams{ID: topic.ID, PostID: postID})
 		if err != nil {
+			return err
+		}
+		if err := s.indexTopic(ctx, q, topic.ID, nil); err != nil {
 			return err
 		}
 		if postID != nil && post.AuthorID != nil {

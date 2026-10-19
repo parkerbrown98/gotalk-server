@@ -31,7 +31,7 @@ const (
 )
 
 // ConfigSections lists the sections in wizard order.
-var ConfigSections = []string{SectionStorage, SectionMail, SectionVoice, SectionCORS}
+var ConfigSections = []string{SectionStorage, SectionMail, SectionVoice, SectionCORS, SectionDirectory}
 
 // Where a section's effective settings come from.
 const (
@@ -51,6 +51,8 @@ var sectionKeys = map[string]string{
 	SectionMail:    "mail.driver",
 	SectionVoice:   "voice.livekit_url",
 	SectionCORS:    "server.cors_allowed_origins",
+	// directory.listed is false by default, so only an explicit setting counts.
+	SectionDirectory: "directory.listed",
 }
 
 // SectionKey returns the config key that makes a section read-only when set.
@@ -100,10 +102,11 @@ type CORSSettings struct {
 // ProviderSettings carries settings for any subset of sections; nil sections are left
 // alone.
 type ProviderSettings struct {
-	Storage *storage.Settings `json:"storage,omitempty"`
-	Mail    *mail.Settings    `json:"mail,omitempty"`
-	Voice   *VoiceSettings    `json:"voice,omitempty"`
-	CORS    *CORSSettings     `json:"cors,omitempty"`
+	Storage   *storage.Settings  `json:"storage,omitempty"`
+	Mail      *mail.Settings     `json:"mail,omitempty"`
+	Voice     *VoiceSettings     `json:"voice,omitempty"`
+	CORS      *CORSSettings      `json:"cors,omitempty"`
+	Directory *DirectorySettings `json:"directory,omitempty"`
 }
 
 func (p ProviderSettings) sections() []string {
@@ -119,6 +122,9 @@ func (p ProviderSettings) sections() []string {
 	}
 	if p.CORS != nil {
 		out = append(out, SectionCORS)
+	}
+	if p.Directory != nil {
+		out = append(out, SectionDirectory)
 	}
 	return out
 }
@@ -140,6 +146,8 @@ type Providers struct {
 	VoiceErr      error
 
 	CORS CORSSettings
+
+	Directory DirectorySettings
 
 	Sources map[string]string
 	// Saved holds the rows stored in the database, by section.
@@ -169,7 +177,8 @@ func (s *Service) effectiveSettings(rows map[string]store.InstanceConfig) (Provi
 	ml := cfg.Mail
 	vc := voiceSettingsOf(cfg.Voice)
 	cors := CORSSettings{AllowedOrigins: slices.Clone(cfg.Server.CORSAllowedOrigins), AllowCredentials: cfg.Server.CORSAllowCredentials}
-	targets := map[string]any{SectionStorage: &st, SectionMail: &ml, SectionVoice: &vc, SectionCORS: &cors}
+	dir := directorySettingsOf(cfg.Directory)
+	targets := map[string]any{SectionStorage: &st, SectionMail: &ml, SectionVoice: &vc, SectionCORS: &cors, SectionDirectory: &dir}
 
 	sources := map[string]string{}
 	var errs []error
@@ -187,12 +196,12 @@ func (s *Service) effectiveSettings(rows map[string]store.InstanceConfig) (Provi
 			sources[section] = SourceDefault
 		}
 	}
-	return ProviderSettings{Storage: &st, Mail: &ml, Voice: &vc, CORS: &cors}, sources, errors.Join(errs...)
+	return ProviderSettings{Storage: &st, Mail: &ml, Voice: &vc, CORS: &cors, Directory: &dir}, sources, errors.Join(errs...)
 }
 
 // buildProviders opens backends for settings, reusing prev's where settings are unchanged.
 func (s *Service) buildProviders(eff ProviderSettings, prev *Providers) *Providers {
-	p := &Providers{StorageSettings: *eff.Storage, MailSettings: *eff.Mail, VoiceSettings: *eff.Voice, CORS: *eff.CORS}
+	p := &Providers{StorageSettings: *eff.Storage, MailSettings: *eff.Mail, VoiceSettings: *eff.Voice, CORS: *eff.CORS, Directory: *eff.Directory}
 
 	if prev != nil && reflect.DeepEqual(prev.StorageSettings, p.StorageSettings) && prev.StorageErr == nil {
 		p.Storage = prev.Storage
@@ -249,8 +258,14 @@ func (s *Service) ReloadProviders(ctx context.Context) error {
 			s.log.Error("provider is misconfigured", "section", section, "source", sources[section], "error", perr)
 		}
 	}
-	s.providers.Store(p)
+	prev := s.providers.Swap(p)
 	s.health.reset()
+	if prev != nil && prev.Directory.Listed != p.Directory.Listed {
+		s.log.Info("directory listing changed", "listed", p.Directory.Listed)
+		if err := s.syncIndexListing(ctx); err != nil {
+			return fmt.Errorf("updating the public index state: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -314,6 +329,8 @@ func (s *Service) ConfigView() []SectionView {
 			v.Error = errString(p.VoiceErr)
 		case SectionCORS:
 			v.Settings, v.SecretsSet = p.CORS, []string{}
+		case SectionDirectory:
+			v.Settings, v.SecretsSet = p.Directory.Redacted(), p.Directory.SecretsSet()
 		}
 		if row, ok := p.Saved[section]; ok && v.Source == SourceSettings {
 			v.UpdatedAt, v.UpdatedBy = &row.UpdatedAt, row.UpdatedBy
@@ -379,6 +396,10 @@ func (s *Service) prepareSettings(in ProviderSettings) ([]candidate, error) {
 				err = config.ValidateCORS(cors.AllowedOrigins, cors.AllowCredentials)
 			}
 			v = cors
+		case SectionDirectory:
+			dir := in.Directory.KeepSecrets(p.Directory)
+			err = validateDirectory(dir)
+			v = dir
 		}
 		if err != nil {
 			return nil, apperr.Invalid("%s: %s", section, err.Error())
@@ -409,6 +430,10 @@ func (s *Service) checkCandidates(ctx context.Context, cands []candidate, testEm
 			out = append(out, checkVoice(ctx, c.voice, nil))
 		case SectionCORS:
 			out = append(out, Check{Name: "cors", Status: CheckOK, Detail: "origins are valid"})
+		case SectionDirectory:
+			var d DirectorySettings
+			_ = json.Unmarshal(c.data, &d)
+			out = append(out, s.checkDirectory(ctx, d))
 		}
 	}
 	return out
@@ -449,7 +474,18 @@ func (s *Service) SaveSettings(ctx context.Context, p *Principal, in ProviderSet
 	if err != nil {
 		return checks, err
 	}
-	if err := s.tx(ctx, func(q *store.Queries) error { return s.storeCandidates(ctx, q, cands, &p.User.ID) }); err != nil {
+	if err := s.tx(ctx, func(q *store.Queries) error {
+		if err := s.storeCandidates(ctx, q, cands, &p.User.ID); err != nil {
+			return err
+		}
+		if in.Directory == nil {
+			return nil
+		}
+		return s.instanceAudit(ctx, q, p, "directory.update", "", nil, map[string]any{
+			"listed": in.Directory.Listed, "pings_disabled": in.Directory.PingsDisabled, "platform_url": in.Directory.PlatformURL,
+			"contact_email_set": in.Directory.ContactEmail != "", "signing_key_set": in.Directory.SigningKey != "",
+		})
+	}); err != nil {
 		return checks, err
 	}
 	s.log.Info("instance settings changed", "sections", in.sections(), "by", p.User.Username)
@@ -498,8 +534,13 @@ func (s *Service) ResetSettings(ctx context.Context, p *Principal, section strin
 		if err != nil || n == 0 {
 			return err
 		}
-		_, err = q.BumpConfigRevision(ctx)
-		return err
+		if _, err = q.BumpConfigRevision(ctx); err != nil {
+			return err
+		}
+		if section != SectionDirectory {
+			return nil
+		}
+		return s.instanceAudit(ctx, q, p, "directory.reset", "", nil, nil)
 	})
 	if err != nil {
 		return err

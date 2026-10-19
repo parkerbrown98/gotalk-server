@@ -248,6 +248,8 @@ type PlaceUpdate struct {
 	// VotingEnabled turns topic voting on or off; with it off, feeds rank topics by the
 	// reactions on their opening post.
 	VotingEnabled *bool
+	// Indexable lets the place's public boards appear in the public index (default off).
+	Indexable *bool
 }
 
 func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in PlaceUpdate) (PlaceView, error) {
@@ -277,6 +279,9 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 	if err := errors.Join(validateOptionalURL("icon_url", in.IconURL), validateOptionalURL("banner_url", in.BannerURL)); err != nil {
 		return PlaceView{}, firstAppErr(err)
 	}
+	if in.Indexable != nil && *in.Indexable && ((in.IsNSFW == nil && place.IsNsfw) || (in.IsNSFW != nil && *in.IsNSFW)) {
+		return PlaceView{}, apperr.Invalid("NSFW places cannot appear in search engines; turn off is_nsfw first")
+	}
 	var updated store.Place
 	err = s.tx(ctx, func(q *store.Queries) error {
 		var err error
@@ -291,6 +296,7 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 			IconUrl:       in.IconURL,
 			BannerUrl:     in.BannerURL,
 			VotingEnabled: in.VotingEnabled,
+			Indexable:     in.Indexable,
 		})
 		if database.IsUniqueViolation(err, "places_slug_key") {
 			return apperr.Conflict("slug is already in use")
@@ -302,6 +308,13 @@ func (s *Service) UpdatePlace(ctx context.Context, p *Principal, ref string, in 
 			if err := s.refreshPublicBoards(ctx, q, place.ID); err != nil {
 				return err
 			}
+		}
+		details := in.Name != nil || in.Description != nil || in.Slug != nil || in.Locale != nil || in.IconURL != nil
+		if err := s.refreshIndexState(ctx, q, place.ID, indexTouch{place: details}); err != nil {
+			return err
+		}
+		if updated, err = q.GetPlaceByID(ctx, place.ID); err != nil {
+			return err
 		}
 		if updated.VotingEnabled != place.VotingEnabled {
 			if err := q.RefreshTopicRanks(ctx, store.RefreshTopicRanksParams{PlaceID: &place.ID}); err != nil {
@@ -327,6 +340,7 @@ func placeChanges(in PlaceUpdate) map[string]any {
 	setIf(m, "icon_url", in.IconURL)
 	setIf(m, "banner_url", in.BannerURL)
 	setIf(m, "voting_enabled", in.VotingEnabled)
+	setIf(m, "indexable", in.Indexable)
 	return m
 }
 
@@ -338,7 +352,12 @@ func (s *Service) DeletePlace(ctx context.Context, p *Principal, ref string) err
 	if !acc.Member.IsOwner && !p.User.IsInstanceAdmin {
 		return apperr.Forbidden("only the owner can delete a place")
 	}
-	if err := s.q.SoftDeletePlace(ctx, place.ID); err != nil {
+	if err := s.tx(ctx, func(q *store.Queries) error {
+		if err := q.SoftDeletePlace(ctx, place.ID); err != nil {
+			return err
+		}
+		return s.dropPlaceFromIndex(ctx, q, place)
+	}); err != nil {
 		return err
 	}
 	s.emit(ctx, s.q, Event{Type: EventPlaceDelete, Data: map[string]any{"place_id": place.ID}, Places: []uuid.UUID{place.ID}})

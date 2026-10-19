@@ -424,5 +424,8 @@ func (s *Service) Maintain(ctx context.Context) error {
 	if _, err := s.q.DeleteExpiredEmailTokens(ctx, time.Now().Add(-24*time.Hour)); err != nil {
 		return err
 	}
+	if err := s.pruneIndexChanges(ctx, time.Now().Add(-IndexRetention)); err != nil {
+		return err
+	}
 	return s.pruneUploads(ctx, time.Now().Add(-uploadGrace))
 }

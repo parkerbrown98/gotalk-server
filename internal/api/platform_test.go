@@ -603,7 +603,7 @@ func TestCapabilityNegotiation(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, res.StatusCode)
 
 	limits := e.expect(200, e.do("GET", "/api/v1/rate-limits", "", nil)).list(t)
-	require.Len(t, limits, 4)
+	require.Len(t, limits, 5)
 	first := limits[0].(map[string]any)
 	require.Equal(t, "default", first["tier"])
 	require.Less(t, first["remaining"].(float64), first["limit"].(float64))

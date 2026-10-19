@@ -19,6 +19,8 @@ const (
 	TierContent = "content"
 	// TierChat applies to sending chat messages, reactions and typing indicators.
 	TierChat = "chat"
+	// TierIndex applies to the public index endpoints (/api/v1/index), always per IP.
+	TierIndex = "index"
 )
 
 type Result struct {
@@ -60,7 +62,7 @@ func New(rdb *redis.Client, rates map[string]string) (*Limiter, error) {
 	}
 
 	l := &Limiter{tiers: map[string]*limiter.Limiter{}, backend: backend}
-	for _, name := range []string{TierDefault, TierAuth, TierContent, TierChat} {
+	for _, name := range []string{TierDefault, TierAuth, TierContent, TierChat, TierIndex} {
 		formatted, ok := rates[name]
 		if !ok {
 			continue

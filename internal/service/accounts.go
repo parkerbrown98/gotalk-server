@@ -298,6 +298,8 @@ type ProfileUpdate struct {
 	Bio         *string
 	Pronouns    *string
 	AvatarURL   *string
+	// ExcludeFromIndex keeps the person's posts out of public search indexes.
+	ExcludeFromIndex *bool
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, p *Principal, in ProfileUpdate) (store.User, error) {
@@ -308,14 +310,31 @@ func (s *Service) UpdateProfile(ctx context.Context, p *Principal, in ProfileUpd
 		trimmed := strings.TrimSpace(*in.DisplayName)
 		in.DisplayName = &trimmed
 	}
-	user, err := s.q.UpdateUserProfile(ctx, store.UpdateUserProfileParams{
-		ID:          p.User.ID,
-		DisplayName: in.DisplayName,
-		Bio:         in.Bio,
-		Pronouns:    in.Pronouns,
-		AvatarUrl:   in.AvatarURL,
+	var user store.User
+	err := s.tx(ctx, func(q *store.Queries) error {
+		var err error
+		user, err = q.UpdateUserProfile(ctx, store.UpdateUserProfileParams{
+			ID:          p.User.ID,
+			DisplayName: in.DisplayName,
+			Bio:         in.Bio,
+			Pronouns:    in.Pronouns,
+			AvatarUrl:   in.AvatarURL,
+		})
+		if err != nil {
+			return notFound(err, "user not found")
+		}
+		if in.ExcludeFromIndex != nil && *in.ExcludeFromIndex != user.ExcludeFromIndex {
+			if user, err = s.setIndexExclusion(ctx, q, p, *in.ExcludeFromIndex); err != nil {
+				return err
+			}
+		}
+		if in.DisplayName != nil && *in.DisplayName != p.User.DisplayName && !user.ExcludeFromIndex {
+			// Indexed topics show author display names, so they need re-reading.
+			return s.reindexUserTopics(ctx, q, user.ID)
+		}
+		return nil
 	})
-	return user, notFound(err, "user not found")
+	return user, err
 }
 
 // ChangePassword verifies the current password, stores the new one, and signs out every
@@ -436,5 +455,9 @@ func (s *Service) deactivateUser(ctx context.Context, q *store.Queries, userID u
 		return err
 	}
 	s.emitSessionsEnded(ctx, q, userID, nil, nil)
+	// Posts stay on the instance, but a deleted account's posts leave the public index.
+	if err := s.indexUser(ctx, q, userID, true); err != nil {
+		return err
+	}
 	return q.SoftDeleteUser(ctx, userID)
 }

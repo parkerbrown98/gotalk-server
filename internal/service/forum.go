@@ -284,7 +284,10 @@ func (s *Service) refreshPublicBoards(ctx context.Context, q *store.Queries, pla
 			}
 		}
 	}
-	return q.SetPublicBoards(ctx, store.SetPublicBoardsParams{PlaceID: placeID, PublicIds: ids})
+	if err := q.SetPublicBoards(ctx, store.SetPublicBoardsParams{PlaceID: placeID, PublicIds: ids}); err != nil {
+		return err
+	}
+	return s.refreshIndexState(ctx, q, placeID, indexTouch{})
 }
 
 // BoardView is a board plus the caller's permissions within it.
@@ -368,6 +371,8 @@ type BoardUpdate struct {
 	ReplyMode        *string
 	SolutionsEnabled *bool
 	IsNSFW           *bool
+	// Indexable lets the board appear in the public index when its place does (default on).
+	Indexable *bool
 }
 
 func validateBoardName(name *string) error {
@@ -520,9 +525,12 @@ func (s *Service) UpdateBoard(ctx context.Context, p *Principal, boardID uuid.UU
 		if !f.acc.IsMember || !f.has(b.ID, permissions.ManageBoards) {
 			return missing(permissions.ManageBoards)
 		}
+		if in.Indexable != nil && *in.Indexable && ((in.IsNSFW == nil && b.IsNsfw) || (in.IsNSFW != nil && *in.IsNSFW)) {
+			return apperr.Invalid("NSFW boards cannot appear in search engines; turn off is_nsfw first")
+		}
 		params := store.UpdateBoardParams{
 			ID: b.ID, Name: in.Name, Slug: in.Slug, Description: in.Description, Position: in.Position,
-			ReplyMode: in.ReplyMode, SolutionsEnabled: in.SolutionsEnabled, IsNsfw: in.IsNSFW,
+			ReplyMode: in.ReplyMode, SolutionsEnabled: in.SolutionsEnabled, IsNsfw: in.IsNSFW, Indexable: in.Indexable,
 		}
 		if in.ParentID != nil {
 			var parent *uuid.UUID
@@ -559,6 +567,16 @@ func (s *Service) UpdateBoard(ctx context.Context, p *Principal, boardID uuid.UU
 				return err
 			}
 		}
+		touch := indexTouch{}
+		if in.Name != nil || in.Slug != nil || in.Description != nil || in.Position != nil || params.SetParent {
+			touch.boards = []uuid.UUID{b.ID}
+		}
+		if err := s.refreshIndexState(ctx, q, f.place.ID, touch); err != nil {
+			return err
+		}
+		if updated, err = q.GetBoard(ctx, b.ID); err != nil {
+			return err
+		}
 		if err := s.audit(ctx, q, f.place.ID, p, "board.update", "board", &b.ID, "", boardChanges(in)); err != nil {
 			return err
 		}
@@ -587,6 +605,7 @@ func boardChanges(in BoardUpdate) map[string]any {
 	set("reply_mode", in.ReplyMode, in.ReplyMode != nil)
 	set("solutions_enabled", in.SolutionsEnabled, in.SolutionsEnabled != nil)
 	set("is_nsfw", in.IsNSFW, in.IsNSFW != nil)
+	set("indexable", in.Indexable, in.Indexable != nil)
 	set("parent_id", in.ParentID, in.ParentID != nil)
 	return m
 }
@@ -624,6 +643,11 @@ func (s *Service) DeleteBoard(ctx context.Context, p *Principal, boardID uuid.UU
 		}
 		if err := q.DeleteTargetSubscriptions(ctx, store.DeleteTargetSubscriptionsParams{TargetType: "board", TargetID: b.ID}); err != nil {
 			return err
+		}
+		if b.InIndex {
+			if err := s.emitIndex(ctx, q, IndexBoardDelete, &f.place.ID, &b.ID, nil, nil); err != nil {
+				return err
+			}
 		}
 		if err := q.DeleteBoard(ctx, b.ID); err != nil {
 			return err

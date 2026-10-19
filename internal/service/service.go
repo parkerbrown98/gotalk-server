@@ -46,6 +46,9 @@ type Service struct {
 	mailWake    chan struct{}
 	// links fetches link previews in the background.
 	links linkResolver
+	// dirKeys caches the index ping signing key; indexWake nudges the ping sender.
+	dirKeys   atomic.Pointer[directoryKeys]
+	indexWake chan struct{}
 }
 
 // txState is the work a transaction defers until it commits.
@@ -61,7 +64,7 @@ type txState struct {
 // secret and setup token) on first boot, and opens the storage, mail and voice providers.
 func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger) (*Service, error) {
 	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log,
-		webhookWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1)}
+		webhookWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), indexWake: make(chan struct{}, 1)}
 
 	secret := make([]byte, 64)
 	if _, err := rand.Read(secret); err != nil {
@@ -91,6 +94,11 @@ func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.
 	s.tokens = auth.NewTokenIssuer(jwtSecret, cfg.Auth.AccessTokenTTL)
 	if err := s.ReloadProviders(ctx); err != nil {
 		return nil, fmt.Errorf("loading instance settings: %w", err)
+	}
+	// Listing may have been switched in the config file or environment while the server was
+	// down, so bring the index state in line with it.
+	if err := s.syncIndexListing(ctx); err != nil {
+		return nil, fmt.Errorf("updating the public index state: %w", err)
 	}
 	return s, nil
 }
