@@ -1,0 +1,23 @@
+{
+  "description": "GOTALK-INDEX-SIG-V1 ping signing vector. Seed bytes are 00 01 02 ... 1f, nonce bytes 00 01 ... 0f, the same as the gateway protocol vector. Ed25519 is deterministic, so every implementation must produce this signature.",
+  "seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "key_id": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "method": "POST",
+  "host": "gotalk.sh",
+  "path": "/api/index/v1/ping",
+  "timestamp": 1792300800,
+  "nonce": "AAECAwQFBgcICQoLDA0ODw",
+  "body": "{\"origin\":\"https://forum.example\"}",
+  "body_sha256": "gczZSMiK69rCNXLg-D739OSxi7ZGPR56EBANvodjj00",
+  "signing_string": "GOTALK-INDEX-SIG-V1\nPOST\ngotalk.sh\n/api/index/v1/ping\n1792300800\nAAECAwQFBgcICQoLDA0ODw\nA6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\ngczZSMiK69rCNXLg-D739OSxi7ZGPR56EBANvodjj00",
+  "content_digest": "sha-256=:gczZSMiK69rCNXLg+D739OSxi7ZGPR56EBANvodjj00=:",
+  "signature": "n29sNGSRV-ISQgfrllTXJgyPGkWh9pzL1OPDbqCagpUzBy_gI6auiUcngf7URw7mN5s-8l04RYawIuD3QBCeDg",
+  "headers": {
+    "Gotalk-Key-Id": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "Gotalk-Timestamp": "1792300800",
+    "Gotalk-Nonce": "AAECAwQFBgcICQoLDA0ODw",
+    "Content-Digest": "sha-256=:gczZSMiK69rCNXLg+D739OSxi7ZGPR56EBANvodjj00=:",
+    "Gotalk-Signature": "n29sNGSRV-ISQgfrllTXJgyPGkWh9pzL1OPDbqCagpUzBy_gI6auiUcngf7URw7mN5s-8l04RYawIuD3QBCeDg"
+  }
+}
