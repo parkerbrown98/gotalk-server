@@ -399,6 +399,57 @@ type PostRevision struct {
 	CreatedAt time.Time
 }
 
+type PushGateway struct {
+	ID         int16
+	SigningKey []byte
+	GatewayUrl *string
+	PublicKey  *string
+	InstanceID *string
+	KeyID      *string
+	Status     string
+	Detail     string
+	VerifiedAt *time.Time
+	CheckedAt  *time.Time
+	UpdatedAt  time.Time
+}
+
+type PushOutbox struct {
+	NotificationID uuid.UUID
+	UserID         uuid.UUID
+	Pending        []uuid.UUID
+	Attempts       int32
+	NextAttemptAt  time.Time
+	LockedUntil    *time.Time
+	CreatedAt      time.Time
+}
+
+type PushPreference struct {
+	UserID             uuid.UUID
+	DisabledCategories []string
+	QuietHoursStart    *int16
+	QuietHoursEnd      *int16
+	Timezone           string
+	PausedUntil        *time.Time
+	UpdatedAt          time.Time
+}
+
+type PushSubscription struct {
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	SessionID      uuid.UUID
+	GatewayUrl     string
+	SubscriptionID string
+	AppID          string
+	Platform       string
+	P256dh         []byte
+	Auth           []byte
+	Mode           string
+	DeviceName     string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastPushAt     *time.Time
+}
+
 type Report struct {
 	ID              uuid.UUID
 	PlaceID         uuid.UUID
