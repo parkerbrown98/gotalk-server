@@ -188,6 +188,8 @@ func (s *Service) completeSetup(ctx context.Context, in SetupInput, client Clien
 			s.log.Error("applying settings from setup", "error", err)
 		}
 	}
+	// Push registration waits for setup: the gateway needs an administrator to contact.
+	s.wakePushGateway()
 	s.log.Info("instance setup completed", "instance", settings.Name, "admin", in.AdminUsername)
 	return result, settings, nil
 }

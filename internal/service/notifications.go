@@ -228,6 +228,9 @@ func (s *Service) insertNotifications(ctx context.Context, q *store.Queries, rs 
 	if batchErr != nil || len(inserted) == 0 {
 		return batchErr
 	}
+	if err := s.queuePushes(ctx, q, inserted); err != nil {
+		return err
+	}
 	var actorUser *store.User
 	if actor != nil {
 		if u, err := q.GetUserByID(ctx, actorID); err == nil {

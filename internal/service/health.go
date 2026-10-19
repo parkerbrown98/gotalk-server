@@ -132,7 +132,8 @@ func (s *Service) DatabaseCheck(ctx context.Context) Check {
 }
 
 // Preflight runs every check live: database, Redis (when ping is not nil), public URL,
-// storage, email and voice. It backs the setup wizard, `gotalk check` and the boot log.
+// storage, email and voice, plus the push gateway registration. It backs the setup
+// wizard, `gotalk check` and the boot log.
 func (s *Service) Preflight(ctx context.Context, redisPing func(context.Context) error) []Check {
 	checks := []Check{s.DatabaseCheck(ctx)}
 	if redisPing == nil {
@@ -159,7 +160,7 @@ func (s *Service) Preflight(ctx context.Context, redisPing func(context.Context)
 	wg.Go(func() { results[2] = checkVoice(ctx, p.Voice, p.VoiceErr) })
 	wg.Wait()
 	s.health.store(results[0], results[1])
-	return append(checks, results...)
+	return append(append(checks, results...), s.pushCheck(ctx))
 }
 
 // healthCache keeps the latest storage and email checks so readiness probes and instance
@@ -276,6 +277,9 @@ func (s *Service) InstanceState(ctx context.Context) (string, []string, error) {
 	}
 	if p := s.Providers(); p.VoiceErr != nil {
 		degraded = append(degraded, "voice")
+	}
+	if s.PushEnabled() && !s.PushAvailable(ctx) {
+		degraded = append(degraded, "push")
 	}
 	if len(degraded) > 0 {
 		return "degraded", degraded, nil

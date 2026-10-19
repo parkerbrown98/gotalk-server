@@ -427,5 +427,11 @@ func (s *Service) Maintain(ctx context.Context) error {
 	if err := s.pruneIndexChanges(ctx, time.Now().Add(-IndexRetention)); err != nil {
 		return err
 	}
+	if _, err := s.q.DeleteStalePushes(ctx, time.Now().Add(-PushMaxAge)); err != nil {
+		return err
+	}
+	if err := s.pruneSignedOutPushSubscriptions(ctx); err != nil {
+		return err
+	}
 	return s.pruneUploads(ctx, time.Now().Add(-uploadGrace))
 }

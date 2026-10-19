@@ -111,3 +111,12 @@ embeds:
 #   platform_url: https://gotalk.sh    # where pings go
 #   pings_disabled: false
 #   signing_key: ""                    # Ed25519 seed, unpadded base64url; generated when empty
+
+# Push notifications to phones and browsers through a Gotalk push gateway. Needs
+# server.public_url (https). Setting push.enabled here makes the section read-only in the
+# browser settings. See docs/push.md.
+# push:
+#   enabled: true
+#   gateway_url: https://push.gotalk.sh   # the official gateway, used by the official apps
+#   contact_email: ops@forum.example      # for the gateway operator; defaults to the first admin
+#   signing_key: ""                       # Ed25519 seed, unpadded base64url; generated when empty

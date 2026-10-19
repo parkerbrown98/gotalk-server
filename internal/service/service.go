@@ -49,6 +49,18 @@ type Service struct {
 	// dirKeys caches the index ping signing key; indexWake nudges the ping sender.
 	dirKeys   atomic.Pointer[directoryKeys]
 	indexWake chan struct{}
+	// pushKeys caches the gateway signing key and pushDiscovery the gateway's discovery
+	// document; pushGatewayWake nudges the registration loop and pushWake the delivery loop.
+	pushKeys          atomic.Pointer[pushKeys]
+	pushDiscovery     atomic.Pointer[pushDiscovery]
+	pushDiscoveryBusy atomic.Bool
+	pushGatewayWake   chan struct{}
+	pushWake          chan struct{}
+	// pushSyncMu keeps this replica's registration syncs from interleaving.
+	pushSyncMu sync.Mutex
+	// presence answers whether a person is in do-not-disturb; set by the API layer.
+	presence   atomic.Pointer[presenceSource]
+	appVersion atomic.Pointer[string]
 }
 
 // txState is the work a transaction defers until it commits.
@@ -64,7 +76,8 @@ type txState struct {
 // secret and setup token) on first boot, and opens the storage, mail and voice providers.
 func New(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, log *slog.Logger) (*Service, error) {
 	s := &Service{pool: pool, q: store.New(pool), cfg: cfg, log: log,
-		webhookWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), indexWake: make(chan struct{}, 1)}
+		webhookWake: make(chan struct{}, 1), mailWake: make(chan struct{}, 1), indexWake: make(chan struct{}, 1),
+		pushGatewayWake: make(chan struct{}, 1), pushWake: make(chan struct{}, 1)}
 
 	secret := make([]byte, 64)
 	if _, err := rand.Read(secret); err != nil {

@@ -149,7 +149,7 @@ func TestSetupWizardConfiguresProviders(t *testing.T) {
 	for _, c := range status["checks"].([]any) {
 		names = append(names, c.(map[string]any)["name"].(string))
 	}
-	require.Equal(t, []string{"database", "redis", "public_url", "storage", "email", "voice"}, names)
+	require.Equal(t, []string{"database", "redis", "public_url", "storage", "email", "voice", "push"}, names)
 
 	status = e.expect(200, e.get("/api/v1/setup/status", map[string]string{"Gotalk-Setup-Token": token})).obj(t)
 	cfg := status["config"].(map[string]any)

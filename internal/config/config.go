@@ -47,7 +47,7 @@ type Config struct {
 	Uploads   Uploads          `koanf:"uploads"`
 	Embeds    Embeds           `koanf:"embeds"`
 	Directory Directory        `koanf:"directory"`
-
+	Push      Push             `koanf:"push"`
 	// explicit holds the keys set by the config file or the environment (as opposed to
 	// built-in defaults).
 	explicit map[string]bool
@@ -99,6 +99,23 @@ type Directory struct {
 	// PingsDisabled stops telling the index about new changes right away; it then picks
 	// them up on its next scheduled read.
 	PingsDisabled bool `koanf:"pings_disabled"`
+}
+
+// Push sends notifications to phones and browsers through a Gotalk push gateway
+// (docs/push.md). Like the provider sections, it can also be managed through the instance
+// settings API unless push.enabled is set here.
+type Push struct {
+	// Enabled registers the instance with the gateway and turns notifications into pushes.
+	Enabled bool `koanf:"enabled"`
+	// GatewayURL is the push gateway's base URL (default https://push.gotalk.sh, the
+	// official gateway that the official apps use).
+	GatewayURL string `koanf:"gateway_url"`
+	// ContactEmail is given to the gateway for abuse and key-expiry notices. When empty, the
+	// oldest instance administrator's address is used.
+	ContactEmail string `koanf:"contact_email"`
+	// SigningKey is an Ed25519 seed (32 bytes, unpadded base64url) that signs requests to the
+	// gateway. When empty the instance generates one and stores it in the database.
+	SigningKey string `koanf:"signing_key"`
 }
 
 type Server struct {
@@ -267,8 +284,12 @@ func defaults() map[string]any {
 		"uploads.max_size":            8 << 20,
 		"embeds.enabled":              true,
 		"directory.platform_url":      "https://gotalk.sh",
+		"push.gateway_url":            DefaultPushGatewayURL,
 	}
 }
+
+// DefaultPushGatewayURL is the official push gateway, which the official apps' builds use.
+const DefaultPushGatewayURL = "https://push.gotalk.sh"
 
 // listKeys are split on commas when supplied through the environment.
 var listKeys = map[string]bool{"server.cors_allowed_origins": true, "server.trusted_proxies": true}
@@ -461,6 +482,9 @@ func (c *Config) Validate() error {
 	if err := ValidateDirectory(c.Directory); err != nil {
 		errs = append(errs, err)
 	}
+	if err := ValidatePush(c.Push); err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid configuration:\n  %w", errors.Join(errs...))
@@ -529,6 +553,26 @@ func ValidateDirectory(d Directory) error {
 	if d.SigningKey != "" {
 		if seed, err := base64.RawURLEncoding.DecodeString(d.SigningKey); err != nil || len(seed) != 32 {
 			errs = append(errs, errors.New("directory.signing_key must be a 32-byte Ed25519 seed in unpadded base64url"))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidatePush checks the push gateway settings.
+func ValidatePush(p Push) error {
+	var errs []error
+	if u, err := url.Parse(p.GatewayURL); p.GatewayURL != "" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "") {
+		errs = append(errs, fmt.Errorf("push.gateway_url must be an absolute http(s) URL without credentials, query or fragment, got %q", p.GatewayURL))
+	}
+	if p.ContactEmail != "" {
+		if a, err := netmail.ParseAddress(p.ContactEmail); err != nil || a.Address != p.ContactEmail {
+			errs = append(errs, fmt.Errorf("push.contact_email must be a plain email address"))
+		}
+	}
+	if p.SigningKey != "" {
+		if seed, err := base64.RawURLEncoding.DecodeString(p.SigningKey); err != nil || len(seed) != 32 {
+			errs = append(errs, errors.New("push.signing_key must be a 32-byte Ed25519 seed in unpadded base64url"))
 		}
 	}
 	return errors.Join(errs...)

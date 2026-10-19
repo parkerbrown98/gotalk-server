@@ -16,6 +16,10 @@ import (
 	"syscall"
 	"time"
 
+	// Quiet hours for push notifications use people's time zones; the container image has
+	// no zoneinfo of its own.
+	_ "time/tzdata"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
